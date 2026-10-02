@@ -1,0 +1,12 @@
+  {
+    "name": "currenwatches.com",
+    "price_usd": 19000,
+    "location": "DE, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 753,
+    "profit_multiple": 2.1,
+    "age": "12 years",
+    "verifications": "Google Analytics, Paypal, Shopify",
+    "listing_id": "12015021",
+    "url": "https://flippa.com/12015021"
+  },
