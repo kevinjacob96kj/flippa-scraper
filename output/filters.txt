@@ -1,0 +1,35 @@
+Keyword                        none
+Managed by                     none
+Price minimum                  none
+Price maximum                  under $100,000
+Category type                  Ecommerce, Content
+Country                        United States
+Business age minimum           12 months
+Business age maximum           none
+Monthly profit minimum         $300
+Monthly profit maximum         none
+Monthly revenue minimum        none
+Monthly revenue maximum        none
+Profit multiple                2x to 3x annual
+Revenue multiple minimum       none
+Revenue multiple maximum       none
+Industry                       none
+Monthly users minimum          none
+Monthly users maximum          none
+Monthly pageviews minimum      none
+Monthly pageviews maximum      none
+Monthly app downloads minimum  none
+Monthly app downloads maximum  none
+Sale type                      Classified
+Status                         Open
+Sort                           none
+Google Analytics               required on the listing
+Verified revenue               required on the listing
+Seller ID / phone              not a Flippa search filter
+
+Still check by hand before bidding:
+- Read-only Google Analytics, Search Console, and payment processor access
+- Traffic is not paid ads, bots, or one fragile keyword
+- Wayback Machine history and a trademark check on the brand
+- Pay through Flippa Escrow or Escrow.com
+- Seller reviews, verified ID, and phone are not search filters
