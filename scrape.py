@@ -30,6 +30,18 @@ SEARCH_URL = "https://flippa.com/search"
 USER_AGENT = "flippa-scraper/0.1 (personal research; rate-limited)"
 PAGE_SIZE = 100
 NONE = "none"
+PUBLIC_FIELDS = [
+    "name",
+    "price_usd",
+    "location",
+    "type",
+    "monthly_profit_usd",
+    "profit_multiple",
+    "age",
+    "verifications",
+    "listing_id",
+    "url",
+]
 ANALYTICS_BADGE = "Google Analytics"
 REQUIRED = "required on the listing"
 
@@ -615,7 +627,32 @@ def keep_listing(item: dict, settings: Settings) -> bool:
     return True
 
 
-def scrape(settings: Settings, delay: float, timeout: float) -> list[dict]:
+def excluded_listing_ids(output_dir: Path) -> set[str]:
+    """Listing numbers in deleted.json, plus anything saved for later."""
+    found: set[str] = set()
+    deleted_path = output_dir / "deleted.json"
+    if deleted_path.is_file():
+        raw = deleted_path.read_text(encoding="utf-8").strip()
+        data = json.loads(raw) if raw else []
+        for item in data:
+            if isinstance(item, dict):
+                item = item.get("listing_id", "")
+            number = str(item).strip()
+            if number:
+                found.add(number)
+    saved_path = output_dir / "saved.json"
+    if saved_path.is_file():
+        raw = saved_path.read_text(encoding="utf-8").strip()
+        data = json.loads(raw) if raw else []
+        for item in data:
+            if isinstance(item, dict):
+                number = str(item.get("listing_id", "")).strip()
+                if number:
+                    found.add(number)
+    return found
+
+
+def scrape(settings: Settings, delay: float, timeout: float, excluded: set[str] | None = None) -> list[dict]:
     print(format_filters(settings.lines), file=sys.stderr)
     print(file=sys.stderr)
     first_url = build_url(settings, 1)
@@ -626,6 +663,12 @@ def scrape(settings: Settings, delay: float, timeout: float) -> list[dict]:
         raise RuntimeError("Could not read the result count from the search page.")
     pages = max(1, math.ceil(reported / PAGE_SIZE))
     print(f"Flippa reports {reported} listings across {pages} pages.", file=sys.stderr)
+    skipped = excluded or set()
+    if skipped:
+        print(
+            f"Skipping {len(skipped)} listing numbers in deleted.json or saved.json.",
+            file=sys.stderr,
+        )
 
     found: dict[str, dict] = {}
     for page in range(1, pages + 1):
@@ -633,6 +676,8 @@ def scrape(settings: Settings, delay: float, timeout: float) -> list[dict]:
         batch = parse_listings(page_html)
         kept = 0
         for item in batch:
+            if item["listing_id"] in skipped:
+                continue
             if not keep_listing(item, settings):
                 continue
             found[item["listing_id"]] = item
@@ -657,18 +702,7 @@ def write_outputs(listings: list[dict], output_dir: Path, settings: Settings) ->
         encoding="utf-8",
     )
 
-    fieldnames = [
-        "name",
-        "price_usd",
-        "location",
-        "type",
-        "monthly_profit_usd",
-        "profit_multiple",
-        "age",
-        "verifications",
-        "listing_id",
-        "url",
-    ]
+    fieldnames = PUBLIC_FIELDS
     rows = [{key: item.get(key, "") for key in fieldnames} for item in listings]
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -716,7 +750,7 @@ def main() -> None:
         print(f"filters.txt: {error}", file=sys.stderr)
         sys.exit(1)
 
-    listings = scrape(settings, args.delay, args.timeout)
+    listings = scrape(settings, args.delay, args.timeout, excluded_listing_ids(args.output))
     write_outputs(listings, args.output, settings)
 
 

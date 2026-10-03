@@ -1,1 +1,2 @@
-run code: python scrape.py --max-price 10000 --country us --delay 1.5 --timeout 60 --output output
+py scrape.py
+py serve.py

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flippa listings</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --line: #e7e5e4;
+      --paper: #fafaf9;
+      --card: #ffffff;
+      --link: #1d4ed8;
+      --save: #166534;
+      --save-bg: #f0fdf4;
+      --delete: #b91c1c;
+      --delete-bg: #fef2f2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.45 "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    header, main { width: min(1100px, calc(100% - 32px)); margin: 0 auto; }
+    header { padding: 28px 0 8px; }
+    h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.03em; }
+    p.lede { margin: 0; color: var(--muted); }
+    nav { display: flex; gap: 8px; margin: 22px 0 16px; }
+    nav button, .actions button {
+      border: 1px solid var(--line);
+      background: var(--card);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 8px 14px;
+      font: inherit;
+      cursor: pointer;
+    }
+    nav button[aria-selected="true"] { background: var(--ink); color: white; border-color: var(--ink); }
+    table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); }
+    th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+    a { color: var(--link); font-weight: 650; }
+    .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .save { color: var(--save); background: var(--save-bg); border-color: #bbf7d0; }
+    .delete { color: var(--delete); background: var(--delete-bg); border-color: #fecaca; }
+    .empty { padding: 28px 8px; color: var(--muted); }
+    .number { font-variant-numeric: tabular-nums; }
+    ul.deleted { list-style: none; padding: 0; margin: 0; }
+    ul.deleted li {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-bottom: 0;
+      padding: 12px 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    ul.deleted li:last-child { border-bottom: 1px solid var(--line); }
+    .error { color: var(--delete); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Flippa listings</h1>
+    <p class="lede">Open a listing, save it for later, or delete it so the next scrape skips that listing number.</p>
+    <nav>
+      <button type="button" data-view="businesses" aria-selected="true">To review</button>
+      <button type="button" data-view="saved" aria-selected="false">Saved for later</button>
+      <button type="button" data-view="deleted" aria-selected="false">Deleted</button>
+    </nav>
+  </header>
+  <main>
+    <p class="error" id="error" hidden></p>
+    <div id="list"></div>
+  </main>
+  <script>
+    const list = document.querySelector("#list");
+    const error = document.querySelector("#error");
+    let view = "businesses";
+    let data = { businesses: [], saved: [], deleted: [] };
+
+    function money(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) return "";
+      return "$" + amount.toLocaleString("en-US");
+    }
+
+    function rowCells(item) {
+      return `
+        <td><a href="${item.url}" target="_blank" rel="noopener">${item.name}</a></td>
+        <td class="money">${money(item.price_usd)}</td>
+        <td>${item.location || ""}</td>
+        <td>${item.type || ""}</td>
+        <td class="money">${money(item.monthly_profit_usd)}</td>
+        <td class="number">${item.listing_id}</td>
+      `;
+    }
+
+    function render() {
+      const titles = {
+        businesses: ["To review", data.businesses.length],
+        saved: ["Saved for later", data.saved.length],
+        deleted: ["Deleted", data.deleted.length],
+      };
+      document.querySelectorAll("nav button").forEach((button) => {
+        const selected = button.dataset.view === view;
+        button.setAttribute("aria-selected", String(selected));
+        const [label, count] = titles[button.dataset.view];
+        button.textContent = `${label} (${count})`;
+      });
+
+      if (view === "deleted") {
+        if (!data.deleted.length) {
+          list.innerHTML = `<p class="empty">No deleted listing numbers yet.</p>`;
+          return;
+        }
+        list.innerHTML = `<ul class="deleted">${data.deleted.map((number) => `<li>Listing ${number}</li>`).join("")}</ul>`;
+        return;
+      }
+
+      const rows = view === "saved" ? data.saved : data.businesses;
+      if (!rows.length) {
+        list.innerHTML = `<p class="empty">${view === "saved" ? "Nothing saved for later." : "No listings to review."}</p>`;
+        return;
+      }
+      const action = view === "saved"
+        ? (id) => `<button class="save" data-action="restore" data-id="${id}">Back to review</button><button class="delete" data-action="delete" data-id="${id}">Delete</button>`
+        : (id) => `<button class="save" data-action="save" data-id="${id}">Save for later</button><button class="delete" data-action="delete" data-id="${id}">Delete</button>`;
+      list.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th><th>Price</th><th>Location</th><th>Type</th><th>Monthly profit</th><th>Listing</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((item) => `<tr>${rowCells(item)}<td><div class="actions">${action(item.listing_id)}</div></td></tr>`).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    async function refresh() {
+      const response = await fetch("/api/state");
+      data = await response.json();
+      render();
+    }
+
+    async function act(action, listingId) {
+      error.hidden = true;
+      const response = await fetch("/api/" + action, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ listing_id: listingId }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        error.hidden = false;
+        error.textContent = payload.error || "Could not update the list.";
+        return;
+      }
+      data = payload;
+      render();
+    }
+
+    document.querySelector("nav").addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      view = button.dataset.view;
+      render();
+    });
+    list.addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      act(button.dataset.action, button.dataset.id);
+    });
+    refresh();
+  </script>
+</body>
+</html>
