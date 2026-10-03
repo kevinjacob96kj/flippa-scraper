@@ -628,7 +628,7 @@ def keep_listing(item: dict, settings: Settings) -> bool:
 
 
 def excluded_listing_ids(output_dir: Path) -> set[str]:
-    """Listing numbers in deleted.json, plus anything saved for later."""
+    """Listing numbers in deleted.json, saved.json, or first_access.json."""
     found: set[str] = set()
     deleted_path = output_dir / "deleted.json"
     if deleted_path.is_file():
@@ -643,6 +643,15 @@ def excluded_listing_ids(output_dir: Path) -> set[str]:
     saved_path = output_dir / "saved.json"
     if saved_path.is_file():
         raw = saved_path.read_text(encoding="utf-8").strip()
+        data = json.loads(raw) if raw else []
+        for item in data:
+            if isinstance(item, dict):
+                number = str(item.get("listing_id", "")).strip()
+                if number:
+                    found.add(number)
+    first_access_path = output_dir / "first_access.json"
+    if first_access_path.is_file():
+        raw = first_access_path.read_text(encoding="utf-8").strip()
         data = json.loads(raw) if raw else []
         for item in data:
             if isinstance(item, dict):
@@ -666,7 +675,7 @@ def scrape(settings: Settings, delay: float, timeout: float, excluded: set[str] 
     skipped = excluded or set()
     if skipped:
         print(
-            f"Skipping {len(skipped)} listing numbers in deleted.json or saved.json.",
+            f"Skipping {len(skipped)} listing numbers already deleted, saved, or in first access.",
             file=sys.stderr,
         )
 

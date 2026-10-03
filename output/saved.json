@@ -10,5 +10,41 @@
     "verifications": "Google Analytics, Shopify",
     "listing_id": "12096575",
     "url": "https://flippa.com/12096575"
+  },
+  {
+    "name": "Reasons To Skip The Housework",
+    "price_usd": 55000,
+    "location": "WA, United States",
+    "type": "Content",
+    "monthly_profit_usd": 2000,
+    "profit_multiple": 2.3,
+    "age": "3 years",
+    "verifications": "Google Analytics, Paypal",
+    "listing_id": "12026246",
+    "url": "https://flippa.com/12026246"
+  },
+  {
+    "name": "Clinch River Fishing Company",
+    "price_usd": 43999,
+    "location": "TN, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 1640,
+    "profit_multiple": 2.2,
+    "age": "1 year",
+    "verifications": "Google Analytics, Shopify",
+    "listing_id": "13455054",
+    "url": "https://flippa.com/13455054"
+  },
+  {
+    "name": "Ecommerce | Health and Beauty",
+    "price_usd": 69600,
+    "location": "NJ, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 2170,
+    "profit_multiple": 2.7,
+    "age": "7 years",
+    "verifications": "Google Analytics, Shopify",
+    "listing_id": "12894806",
+    "url": "https://flippa.com/12894806"
   }
 ]

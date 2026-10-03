@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -21,6 +22,7 @@ WEB = ROOT / "web"
 BUSINESSES_PATH = OUTPUT / "businesses.json"
 SAVED_PATH = OUTPUT / "saved.json"
 DELETED_PATH = OUTPUT / "deleted.json"
+FIRST_ACCESS_PATH = OUTPUT / "first_access.json"
 HOST = "127.0.0.1"
 PORT = 8765
 
@@ -50,6 +52,11 @@ def load_businesses() -> list[dict]:
 
 def load_saved() -> list[dict]:
     data = read_json(SAVED_PATH, [])
+    return data if isinstance(data, list) else []
+
+
+def load_first_access() -> list[dict]:
+    data = read_json(FIRST_ACCESS_PATH, [])
     return data if isinstance(data, list) else []
 
 
@@ -86,17 +93,30 @@ def state() -> dict:
         "businesses": load_businesses(),
         "saved": load_saved(),
         "deleted": load_deleted(),
+        "first_access": load_first_access(),
     }
+
+
+def delete_all_review() -> None:
+    deleted = load_deleted()
+    for row in load_businesses():
+        number = listing_number(row)
+        if number and number not in deleted:
+            deleted.append(number)
+    write_businesses([])
+    write_json(DELETED_PATH, deleted)
 
 
 def delete_listing(number: str) -> None:
     businesses = [row for row in load_businesses() if listing_number(row) != number]
     saved = [row for row in load_saved() if listing_number(row) != number]
+    first_access = [row for row in load_first_access() if listing_number(row) != number]
     deleted = load_deleted()
     if number not in deleted:
         deleted.append(number)
     write_businesses(businesses)
     write_json(SAVED_PATH, saved)
+    write_json(FIRST_ACCESS_PATH, first_access)
     write_json(DELETED_PATH, deleted)
 
 
@@ -110,6 +130,22 @@ def save_listing(number: str) -> None:
         saved.append(public_row(chosen))
     write_businesses([row for row in businesses if listing_number(row) != number])
     write_json(SAVED_PATH, saved)
+
+
+def first_access_listing(number: str, days: int) -> None:
+    if days < 1:
+        raise ValueError("days must be 1 or more")
+    businesses = load_businesses()
+    chosen = next((row for row in businesses if listing_number(row) == number), None)
+    if chosen is None:
+        raise KeyError(number)
+    record = public_row(chosen)
+    record["view_on"] = (date.today() + timedelta(days=days)).isoformat()
+    record["access_days"] = days
+    queued = [row for row in load_first_access() if listing_number(row) != number]
+    queued.append(record)
+    write_businesses([row for row in businesses if listing_number(row) != number])
+    write_json(FIRST_ACCESS_PATH, queued)
 
 
 def restore_listing(number: str) -> None:
@@ -147,8 +183,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         actions = {
             "/api/delete": delete_listing,
+            "/api/delete-all": delete_all_review,
             "/api/save": save_listing,
             "/api/restore": restore_listing,
+            "/api/first-access": first_access_listing,
         }
         action = actions.get(path)
         if action is None:
@@ -157,10 +195,20 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         try:
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if path == "/api/delete-all":
+                delete_all_review()
+                self._send_json(state())
+                return
             number = str(payload.get("listing_id", "")).strip()
             if not number.isdigit():
                 raise ValueError("listing_id must be the Flippa listing number")
-            action(number)
+            if path == "/api/first-access":
+                days = payload.get("days")
+                if isinstance(days, bool) or not isinstance(days, int):
+                    raise ValueError("days must be a whole number")
+                first_access_listing(number, days)
+            else:
+                action(number)
         except KeyError:
             self._send_json({"error": "listing not found"}, status=404)
             return

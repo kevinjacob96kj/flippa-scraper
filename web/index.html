@@ -15,6 +15,8 @@
       --link: #1d4ed8;
       --save: #166534;
       --save-bg: #f0fdf4;
+      --access: #1e3a8a;
+      --access-bg: #eff6ff;
       --delete: #b91c1c;
       --delete-bg: #fef2f2;
     }
@@ -48,6 +50,7 @@
     .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .save { color: var(--save); background: var(--save-bg); border-color: #bbf7d0; }
+    .access { color: var(--access); background: var(--access-bg); border-color: #bfdbfe; }
     .delete { color: var(--delete); background: var(--delete-bg); border-color: #fecaca; }
     .empty { padding: 28px 8px; color: var(--muted); }
     .number { font-variant-numeric: tabular-nums; }
@@ -61,14 +64,16 @@
     }
     ul.deleted li:last-child { border-bottom: 1px solid var(--line); }
     .error { color: var(--delete); }
+    .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 12px; }
   </style>
 </head>
 <body>
   <header>
     <h1>Flippa listings</h1>
-    <p class="lede">Open a listing, save it for later, or delete it so the next scrape skips that listing number.</p>
+    <p class="lede">Open a listing, set a first-access date, save it for later, or delete it so the next scrape skips that listing number.</p>
     <nav>
       <button type="button" data-view="businesses" aria-selected="true">To review</button>
+      <button type="button" data-view="first_access" aria-selected="false">First access</button>
       <button type="button" data-view="saved" aria-selected="false">Saved for later</button>
       <button type="button" data-view="deleted" aria-selected="false">Deleted</button>
     </nav>
@@ -81,7 +86,17 @@
     const list = document.querySelector("#list");
     const error = document.querySelector("#error");
     let view = "businesses";
-    let data = { businesses: [], saved: [], deleted: [] };
+    let data = { businesses: [], saved: [], deleted: [], first_access: [] };
+
+    function viewDate(value) {
+      if (!value) return "";
+      const [year, month, day] = value.split("-").map(Number);
+      return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+    }
 
     function money(value) {
       const amount = Number(value);
@@ -103,6 +118,7 @@
     function render() {
       const titles = {
         businesses: ["To review", data.businesses.length],
+        first_access: ["First access", data.first_access.length],
         saved: ["Saved for later", data.saved.length],
         deleted: ["Deleted", data.deleted.length],
       };
@@ -114,31 +130,43 @@
       });
 
       if (view === "deleted") {
-        if (!data.deleted.length) {
-          list.innerHTML = `<p class="empty">No deleted listing numbers yet.</p>`;
-          return;
-        }
-        list.innerHTML = `<ul class="deleted">${data.deleted.map((number) => `<li>Listing ${number}</li>`).join("")}</ul>`;
+        const deletedBody = data.deleted.length
+          ? `<ul class="deleted">${data.deleted.map((number) => `<li>Listing ${number}</li>`).join("")}</ul>`
+          : `<p class="empty">No deleted listing numbers yet.</p>`;
+        list.innerHTML = `${toolbar()}${deletedBody}`;
         return;
       }
 
-      const rows = view === "saved" ? data.saved : data.businesses;
+      const rows = {
+        businesses: data.businesses,
+        saved: data.saved,
+        first_access: data.first_access,
+      }[view];
+      const emptyText = {
+        businesses: "No listings to review.",
+        saved: "Nothing saved for later.",
+        first_access: "Nothing waiting for first access.",
+      }[view];
       if (!rows.length) {
-        list.innerHTML = `<p class="empty">${view === "saved" ? "Nothing saved for later." : "No listings to review."}</p>`;
+        list.innerHTML = `${toolbar()}<p class="empty">${emptyText}</p>`;
         return;
       }
-      const action = view === "saved"
-        ? (id) => `<button class="save" data-action="restore" data-id="${id}">Back to review</button><button class="delete" data-action="delete" data-id="${id}">Delete</button>`
-        : (id) => `<button class="save" data-action="save" data-id="${id}">Save for later</button><button class="delete" data-action="delete" data-id="${id}">Delete</button>`;
+      const action = {
+        saved: (id) => `<button class="save" data-action="restore" data-id="${id}">Back to review</button><button class="delete" data-action="delete" data-id="${id}">Delete</button>`,
+        first_access: (id) => `<button class="delete" data-action="delete" data-id="${id}">Delete</button>`,
+        businesses: (id) => `<button class="access" data-action="first-access" data-id="${id}">First access</button><button class="save" data-action="save" data-id="${id}">Save for later</button><button class="delete" data-action="delete" data-id="${id}">Delete</button>`,
+      }[view];
+      const dateHeader = view === "first_access" ? "<th>Can view on</th>" : "";
       list.innerHTML = `
+        ${toolbar()}
         <table>
           <thead>
             <tr>
-              <th>Name</th><th>Price</th><th>Location</th><th>Type</th><th>Monthly profit</th><th>Listing</th><th></th>
+              <th>Name</th><th>Price</th><th>Location</th><th>Type</th><th>Monthly profit</th><th>Listing</th>${dateHeader}<th></th>
             </tr>
           </thead>
           <tbody>
-            ${rows.map((item) => `<tr>${rowCells(item)}<td><div class="actions">${action(item.listing_id)}</div></td></tr>`).join("")}
+            ${rows.map((item) => `<tr>${rowCells(item)}${view === "first_access" ? `<td>${viewDate(item.view_on)}</td>` : ""}<td><div class="actions">${action(item.listing_id)}</div></td></tr>`).join("")}
           </tbody>
         </table>`;
     }
@@ -151,10 +179,22 @@
 
     async function act(action, listingId) {
       error.hidden = true;
+      const body = { listing_id: listingId };
+      if (action === "first-access") {
+        const answer = window.prompt("How many days until this listing can be viewed?");
+        if (answer === null) return;
+        const days = Number(answer.trim());
+        if (!Number.isInteger(days) || days < 1) {
+          error.hidden = false;
+          error.textContent = "Enter a whole number of days, 1 or more.";
+          return;
+        }
+        body.days = days;
+      }
       const response = await fetch("/api/" + action, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ listing_id: listingId }),
+        body: JSON.stringify(body),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -163,6 +203,7 @@
         return;
       }
       data = payload;
+      if (action === "first-access") view = "first_access";
       render();
     }
 
@@ -172,9 +213,55 @@
       view = button.dataset.view;
       render();
     });
+    function toolbar() {
+      const deleteAll = view === "businesses"
+        ? `<button type="button" class="delete" data-action="delete-all">Delete all</button>`
+        : "";
+      return `<div class="toolbar"><button type="button" data-action="copy-links">Copy all links</button>${deleteAll}</div>`;
+    }
+
+    function linksForCurrentTab() {
+      if (view === "deleted") {
+        return data.deleted.filter(Boolean).map((number) => `https://flippa.com/${number}`);
+      }
+      const rows = {
+        businesses: data.businesses,
+        saved: data.saved,
+        first_access: data.first_access,
+      }[view] || [];
+      return rows.map((item) => item.url).filter(Boolean);
+    }
+
+    async function copyLinks(button) {
+      const links = linksForCurrentTab();
+      error.hidden = true;
+      if (!links.length) {
+        error.hidden = false;
+        error.textContent = "No links to copy.";
+        return;
+      }
+      await navigator.clipboard.writeText(links.join("\n"));
+      const label = button.textContent;
+      button.textContent = `Copied ${links.length} links`;
+      window.setTimeout(() => {
+        button.textContent = label;
+      }, 1500);
+    }
+
     list.addEventListener("click", (event) => {
       const button = event.target.closest("button");
       if (!button) return;
+      if (button.dataset.action === "copy-links") {
+        copyLinks(button);
+        return;
+      }
+      if (button.dataset.action === "delete-all") {
+        if (!data.businesses.length) return;
+        const count = data.businesses.length;
+        if (!window.confirm(`Delete all ${count} listings on To review? They will be added to the deleted list.`)) return;
+        act("delete-all", "");
+        return;
+      }
       act(button.dataset.action, button.dataset.id);
     });
     refresh();
