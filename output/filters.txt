@@ -13,7 +13,7 @@ Monthly revenue maximum        none
 Profit multiple                none
 Revenue multiple minimum       none
 Revenue multiple maximum       none
-Industry                       Automotive, Business, Education, Electronics, Entertainment, Lifestyle, Food and Drink, General Knowledge, Hobbies and Games, Home and Garden, Sports and Outdoor, Travel
+Industry                       Automotive, Business, Education, Electronics, Entertainment, Lifestyle, Food and Drink, General Knowledge, Hobbies and Games, Home and Garden, Internet, Sports and Outdoor, Travel
 Monthly users minimum          none
 Monthly users maximum          none
 Monthly pageviews minimum      none

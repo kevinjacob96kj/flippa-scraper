@@ -22,6 +22,7 @@
       --delete: #b42318;
       --delete-bg: #fef3f2;
       --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+      --review-last: #dbeafe;
     }
     * { box-sizing: border-box; }
     body {
@@ -256,6 +257,7 @@
       padding: 16px;
       margin-bottom: 12px;
     }
+    .card.reviewed-last { background: var(--review-last); }
     .card-top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
     .name { color: var(--ink); font-size: 16px; font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
     a.name:hover { color: var(--green-dark); }
@@ -280,6 +282,7 @@
       font-weight: 700;
     }
     .permalink { display: inline-block; margin-top: 4px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
+    .view-wait { margin: 10px 0 0; font-weight: 700; color: var(--access); }
     .facts {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -404,6 +407,29 @@
     let data = { businesses: [], saved: [], deleted: [], first_access: [], nda: [], waiting_inquiry: [], ratings: {}, saved_filters: [] };
     let filtersReady = false;
     let running = false;
+    const REVIEW_LAST_KEY = "to-review-last-link";
+
+    function lastReviewLinkId() {
+      try {
+        return localStorage.getItem(REVIEW_LAST_KEY) || "";
+      } catch (storageError) {
+        return "";
+      }
+    }
+
+    function rememberReviewLink(id) {
+      try {
+        localStorage.setItem(REVIEW_LAST_KEY, id);
+      } catch (storageError) {
+        return;
+      }
+      if (view !== "businesses") return;
+      list.querySelectorAll("article.card.reviewed-last").forEach((cardEl) => {
+        cardEl.classList.remove("reviewed-last");
+      });
+      const cardEl = list.querySelector(`article.card[data-id="${id}"]`);
+      if (cardEl) cardEl.classList.add("reviewed-last");
+    }
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
@@ -424,6 +450,20 @@
         day: "numeric",
         year: "numeric",
       });
+    }
+
+    function daysUntilViewLabel(value) {
+      if (!value) return "";
+      const [year, month, day] = String(value).split("-").map(Number);
+      if (!year || !month || !day) return "";
+      const viewOn = new Date(year, month - 1, day);
+      if (viewOn.getFullYear() !== year || viewOn.getMonth() !== month - 1 || viewOn.getDate() !== day) return "";
+      const now = new Date();
+      const diff = Math.round((Date.UTC(year, month - 1, day) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+      if (diff > 1) return diff + " days until you can view";
+      if (diff === 1) return "1 day until you can view";
+      if (diff === 0) return "Today";
+      return "View date passed";
     }
 
     function money(value) {
@@ -767,9 +807,14 @@
       const id = String(item.listing_id || "");
       const safeId = /^\d+$/.test(id) ? id : "";
       const when = view === "first_access" ? fact("Can view on", escapeHtml(viewDate(item.view_on) || "—")) : "";
+      const waitText = view === "first_access" ? daysUntilViewLabel(item.view_on) : "";
+      const wait = waitText ? `<p class="view-wait">${escapeHtml(waitText)}</p>` : "";
       const rating = safeId ? ratingControl(safeId) : "";
       const actions = safeId ? `<div class="actions">${actionButtons(view, safeId)}</div>` : "";
-      return `<article class="card">${`<div class="card-top">${title}<div class="card-side"><div class="price">${money(item.price_usd)}</div>${rating}</div></div>`}${link}<dl class="facts">${fact("Location", escapeHtml(item.location || "—"))}${fact("Type", escapeHtml(item.type || "—"))}${fact("Profit", money(item.monthly_profit_usd))}${fact("Multiple", multipleText(item.profit_multiple))}${fact("Age", escapeHtml(item.age || "—"))}${when}<div class="wide"><dt>Verifications</dt><dd class="badges">${badges(item.verifications)}</dd></div></dl>${actions}</article>`;
+      const highlighted = view === "businesses" && safeId && safeId === lastReviewLinkId();
+      const cardClass = highlighted ? "card reviewed-last" : "card";
+      const idAttr = safeId ? ` data-id="${safeId}"` : "";
+      return `<article class="${cardClass}"${idAttr}>${`<div class="card-top">${title}<div class="card-side"><div class="price">${money(item.price_usd)}</div>${rating}</div></div>`}${link}${wait}<dl class="facts">${fact("Location", escapeHtml(item.location || "—"))}${fact("Type", escapeHtml(item.type || "—"))}${fact("Profit", money(item.monthly_profit_usd))}${fact("Multiple", multipleText(item.profit_multiple))}${fact("Age", escapeHtml(item.age || "—"))}${when}<div class="wide"><dt>Verifications</dt><dd class="badges">${badges(item.verifications)}</dd></div></dl>${actions}</article>`;
     }
 
     function render() {
@@ -1100,6 +1145,12 @@
       render();
     });
     document.querySelector("main").addEventListener("click", (event) => {
+      const link = event.target.closest("a.name, a.permalink");
+      if (link && view === "businesses") {
+        const cardEl = link.closest("article.card");
+        const id = cardEl && cardEl.dataset.id;
+        if (id) rememberReviewLink(id);
+      }
       const button = event.target.closest("button");
       if (!button || !button.dataset.action) return;
       if (button.dataset.action === "copy-links") {

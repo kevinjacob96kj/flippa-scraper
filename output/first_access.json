@@ -12,5 +12,19 @@
     "url": "https://flippa.com/13529722",
     "view_on": "2026-11-04",
     "access_days": 16
+  },
+  {
+    "name": "Ecommerce | Food and Drink",
+    "price_usd": 130000,
+    "location": "WI, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 3980,
+    "profit_multiple": 2.7,
+    "age": "9 years",
+    "verifications": "Amazon Seller, eBay",
+    "listing_id": "14079473",
+    "url": "https://flippa.com/14079473",
+    "view_on": "2026-10-22",
+    "access_days": 3
   }
 ]

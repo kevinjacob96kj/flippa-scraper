@@ -1,113 +1,5 @@
 [
   {
-    "name": "Ecommerce | Sports and Outdoor",
-    "price_usd": 125000,
-    "location": "NY, United States",
-    "type": "Ecommerce",
-    "monthly_profit_usd": 3440,
-    "profit_multiple": 3.0,
-    "age": "9 years",
-    "verifications": "Google Analytics, Shopify",
-    "listing_id": "12279616",
-    "url": "https://flippa.com/12279616"
-  },
-  {
-    "name": "womentravelingtheworld.com",
-    "price_usd": 125000,
-    "location": "FL, United States",
-    "type": "Projects And Concepts",
-    "monthly_profit_usd": null,
-    "profit_multiple": null,
-    "age": "16 years",
-    "verifications": "",
-    "listing_id": "12288364",
-    "url": "https://flippa.com/12288364"
-  },
-  {
-    "name": "YouTube Channel | General Knowledge",
-    "price_usd": 125000,
-    "location": "IA, United States",
-    "type": "YouTube Channel",
-    "monthly_profit_usd": 5870,
-    "profit_multiple": 1.8,
-    "age": "2 years",
-    "verifications": "",
-    "listing_id": "12269876",
-    "url": "https://flippa.com/12269876"
-  },
-  {
-    "name": "Ketogenic",
-    "price_usd": 127000,
-    "location": "NJ, United States",
-    "type": "Content",
-    "monthly_profit_usd": 1170,
-    "profit_multiple": null,
-    "age": "10 years",
-    "verifications": "",
-    "listing_id": "12040225",
-    "url": "https://flippa.com/12040225"
-  },
-  {
-    "name": "Ecommerce | Food and Drink",
-    "price_usd": 130000,
-    "location": "WI, United States",
-    "type": "Ecommerce",
-    "monthly_profit_usd": 3980,
-    "profit_multiple": 2.7,
-    "age": "9 years",
-    "verifications": "Amazon Seller, eBay",
-    "listing_id": "14079473",
-    "url": "https://flippa.com/14079473"
-  },
-  {
-    "name": "MrMcGuyver Sports",
-    "price_usd": 138320,
-    "location": "FL, United States",
-    "type": "YouTube Channel",
-    "monthly_profit_usd": 5000,
-    "profit_multiple": 2.3,
-    "age": "9 years",
-    "verifications": "",
-    "listing_id": "12897085",
-    "url": "https://flippa.com/12897085"
-  },
-  {
-    "name": "Ecommerce | Lifestyle",
-    "price_usd": 145000,
-    "location": "MO, United States",
-    "type": "Ecommerce",
-    "monthly_profit_usd": 5080,
-    "profit_multiple": 2.4,
-    "age": "10 years",
-    "verifications": "Shopify",
-    "listing_id": "13069044",
-    "url": "https://flippa.com/13069044"
-  },
-  {
-    "name": "Bilhuda LLC",
-    "price_usd": 146000,
-    "location": "TX, United States",
-    "type": "Amazon Store",
-    "monthly_profit_usd": 4410,
-    "profit_multiple": 2.8,
-    "age": "5 years",
-    "verifications": "Amazon Seller",
-    "listing_id": "12886260",
-    "url": "https://flippa.com/12886260"
-  },
-  {
-    "name": "Ecommerce | Home and Garden",
-    "price_usd": 149000,
-    "location": "IL, United States",
-    "type": "Ecommerce",
-    "monthly_profit_usd": 27100,
-    "profit_multiple": 0.5,
-    "age": "17 years",
-    "verifications": "Google Analytics",
-    "listing_id": "11636800",
-    "url": "https://flippa.com/11636800"
-  },
-  {
     "name": "Ecommerce | Automotive",
     "price_usd": 150000,
     "location": "IL, United States",
@@ -262,6 +154,18 @@
     "verifications": "Shopify",
     "listing_id": "12279615",
     "url": "https://flippa.com/12279615"
+  },
+  {
+    "name": "dropchamp.com",
+    "price_usd": 200000,
+    "location": "LA, United States",
+    "type": "Saas & Software Projects",
+    "monthly_profit_usd": null,
+    "profit_multiple": null,
+    "age": "2 years",
+    "verifications": "",
+    "listing_id": "12084793",
+    "url": "https://flippa.com/12084793"
   },
   {
     "name": "Ecommerce | Business",
@@ -430,6 +334,18 @@
     "verifications": "Google Analytics",
     "listing_id": "11639863",
     "url": "https://flippa.com/11639863"
+  },
+  {
+    "name": "Disruptive",
+    "price_usd": 227430,
+    "location": "CA, United States",
+    "type": "Digital Agency",
+    "monthly_profit_usd": 21800,
+    "profit_multiple": 0.9,
+    "age": "3 years",
+    "verifications": "",
+    "listing_id": "11818535",
+    "url": "https://flippa.com/11818535"
   },
   {
     "name": "Amazon Store | Food and Drink",
