@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Amazon Store | Business",
+    "price_usd": 111093,
+    "location": "TX, United States",
+    "type": "Amazon Store",
+    "monthly_profit_usd": 4220,
+    "profit_multiple": 2.2,
+    "age": "2 years",
+    "verifications": "Amazon Seller",
+    "listing_id": "13412687",
+    "url": "https://flippa.com/13412687"
+  },
+  {
+    "name": "Turbion Carrera Watches",
+    "price_usd": 82500,
+    "location": "TX, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 3490,
+    "profit_multiple": 2.0,
+    "age": "6 years",
+    "verifications": "Google Analytics, Shopify",
+    "listing_id": "12096575",
+    "url": "https://flippa.com/12096575"
+  },
+  {
+    "name": "SmartPitch LLC",
+    "price_usd": 119500,
+    "location": "NY, United States",
+    "type": "AI Apps & Tools",
+    "monthly_profit_usd": 1030,
+    "profit_multiple": null,
+    "age": "10 years",
+    "verifications": "",
+    "listing_id": "13485891",
+    "url": "https://flippa.com/13485891"
+  }
+]

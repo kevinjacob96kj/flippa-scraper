@@ -1,16 +1,16 @@
 [
   {
-    "name": "Ecommerce | Electronics",
-    "price_usd": 39994,
-    "location": "MD, United States",
-    "type": "Ecommerce",
-    "monthly_profit_usd": 1360,
-    "profit_multiple": 2.5,
-    "age": "2 years",
-    "verifications": "eBay, Google Analytics, Paypal, Shopify, Stripe",
-    "listing_id": "14131051",
-    "url": "https://flippa.com/14131051",
-    "view_on": "2026-10-13",
-    "access_days": 11
+    "name": "Amazon Store | Home and Garden",
+    "price_usd": 100000,
+    "location": "VA, United States",
+    "type": "Amazon Store",
+    "monthly_profit_usd": 1590,
+    "profit_multiple": 5.2,
+    "age": "6 years",
+    "verifications": "Amazon Seller, eBay",
+    "listing_id": "13529722",
+    "url": "https://flippa.com/13529722",
+    "view_on": "2026-11-04",
+    "access_days": 16
   }
 ]

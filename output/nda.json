@@ -1,0 +1,62 @@
+[
+  {
+    "name": "SaaS | Electronics",
+    "price_usd": 100000,
+    "location": "CO, United States",
+    "type": "SaaS",
+    "monthly_profit_usd": null,
+    "profit_multiple": null,
+    "age": "6 years",
+    "verifications": "",
+    "listing_id": "12005392",
+    "url": "https://flippa.com/12005392"
+  },
+  {
+    "name": "Ecommerce | Business",
+    "price_usd": 105000,
+    "location": "WY, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 3710,
+    "profit_multiple": 3.7,
+    "age": "6 years",
+    "verifications": "Shopify",
+    "listing_id": "14375055",
+    "url": "https://flippa.com/14375055"
+  },
+  {
+    "name": "Ecommerce | Food and Drink",
+    "price_usd": 115000,
+    "location": "WY, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 4450,
+    "profit_multiple": 2.2,
+    "age": "4 years",
+    "verifications": "WooCommerce",
+    "listing_id": "12282373",
+    "url": "https://flippa.com/12282373"
+  },
+  {
+    "name": "Service | Education",
+    "price_usd": 124000,
+    "location": "KY, United States",
+    "type": "Service",
+    "monthly_profit_usd": 5710,
+    "profit_multiple": 1.8,
+    "age": "6 years",
+    "verifications": "Google Analytics, Stripe",
+    "listing_id": "12166327",
+    "url": "https://flippa.com/12166327"
+  },
+  {
+    "name": "Ecommerce | Health and Beauty",
+    "price_usd": 69600,
+    "location": "NJ, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 2170,
+    "profit_multiple": 2.7,
+    "age": "7 years",
+    "verifications": "Google Analytics, Shopify",
+    "listing_id": "12894806",
+    "url": "https://flippa.com/12894806"
+  }
+]

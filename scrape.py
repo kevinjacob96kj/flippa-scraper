@@ -4,8 +4,8 @@ Uses Flippa's public search pages (the same pages a browser loads). Search is
 allowed by robots.txt. Requests are paced so the crawl stays light.
 
 Edit the value column in filters.txt, then run this script. A value of none
-leaves that filter off. Seller ID / phone and the checklist at the bottom are
-notes: they stay in the file and are not sent to Flippa.
+leaves that filter off. Pass --url with a Flippa search link to replace the
+filter values from that link. serve.py edits this same file from a local page.
 
 Flippa shows a listing title, not always a legal entity name. Confidential
 listings keep the real name hidden.
@@ -73,7 +73,6 @@ LABELS = [
     "Sort",
     "Google Analytics",
     "Verified revenue",
-    "Seller ID / phone",
 ]
 
 CATEGORIES = {
@@ -184,24 +183,14 @@ FILTER_LINE_RE = re.compile(r"^(.*?)\s{2,}(\S.*?)\s*$")
 BADGE_RE = re.compile(r'data-title="([^"]+)"')
 COUNT_RE = re.compile(r"^[0-9][0-9,]*$")
 
-MANUAL_CHECKS = """
-Still check by hand before bidding:
-- Read-only Google Analytics, Search Console, and payment processor access
-- Traffic is not paid ads, bots, or one fragile keyword
-- Wayback Machine history and a trademark check on the brand
-- Pay through Flippa Escrow or Escrow.com
-- Seller reviews, verified ID, and phone are not search filters
-""".strip()
-
 
 class FilterError(Exception):
     """filters.txt could not be used. The file is left unchanged."""
 
 
 class Settings:
-    def __init__(self, lines: list[tuple[str, str]], checklist: str) -> None:
+    def __init__(self, lines: list[tuple[str, str]]) -> None:
         self.lines = lines
-        self.checklist = checklist
         values = dict(lines)
         self.keyword = _optional_text(values["Keyword"])
         self.managed_by = _choice_list(values["Managed by"], MANAGED_BY, "Managed by")
@@ -241,16 +230,26 @@ class Settings:
         _check_bounds("Monthly app downloads", self.downloads_min, self.downloads_max)
 
 
+def _is_retired_note(raw: str) -> bool:
+    """Blank lines, the old seller note, and the old bidding checklist."""
+    stripped = raw.strip()
+    if not stripped:
+        return True
+    lowered = stripped.lower()
+    return (
+        lowered.startswith("-")
+        or lowered.startswith("still check")
+        or lowered.startswith("seller id / phone")
+    )
+
+
 def read_filters(path: Path) -> Settings:
     if not path.is_file():
         raise FilterError(f"missing {path}")
     text = path.read_text(encoding="utf-8")
     found: dict[str, str] = {}
-    checklist_lines: list[str] = []
     for line_no, raw in enumerate(text.splitlines(), 1):
-        if not raw.strip() or raw.strip().startswith("-") or raw.lower().lstrip().startswith("still check"):
-            if raw.strip():
-                checklist_lines.append(raw.strip())
+        if _is_retired_note(raw):
             continue
         match = FILTER_LINE_RE.match(raw.rstrip())
         if not match:
@@ -265,8 +264,7 @@ def read_filters(path: Path) -> Settings:
     missing = [label for label in LABELS if label not in found]
     if missing:
         raise FilterError("missing " + ", ".join(missing))
-    checklist = "\n".join(checklist_lines).strip() or MANUAL_CHECKS
-    return Settings([(label, found[label]) for label in LABELS], checklist)
+    return Settings([(label, found[label]) for label in LABELS])
 
 
 def _is_none(value: str) -> bool:
@@ -344,14 +342,27 @@ def _age(value: str, label: str) -> int | None:
 def _multiple_bounds(value: str, label: str) -> tuple[float | None, float | None]:
     if _is_none(value):
         return None, None
-    match = MULTIPLE_RANGE_RE.match(value.strip())
-    if not match:
-        raise FilterError(f"{label}: {value!r} should look like 2x to 3x annual")
-    low = float(match.group(1))
-    high = float(match.group(2))
-    if low < 0 or high < low:
-        raise FilterError(f"{label}: {value!r} is out of order")
-    return low, high
+    text = value.strip()
+    match = MULTIPLE_RANGE_RE.match(text)
+    if match:
+        low = float(match.group(1))
+        high = float(match.group(2))
+        if low < 0 or high < low:
+            raise FilterError(f"{label}: {value!r} is out of order")
+        return low, high
+    minimum = MULTIPLE_ONE_RE.match(text)
+    if minimum:
+        number = float(minimum.group(1))
+        if number < 0:
+            raise FilterError(f"{label}: {value!r} is too small")
+        return number, None
+    maximum = re.fullmatch(r"to\s+([0-9]+(?:\.[0-9]+)?)x(?:\s+annual)?", text, re.IGNORECASE)
+    if maximum:
+        number = float(maximum.group(1))
+        if number < 0:
+            raise FilterError(f"{label}: {value!r} is too small")
+        return None, number
+    raise FilterError(f"{label}: {value!r} should look like 2x to 3x annual")
 
 
 def _one_multiple(value: str, label: str) -> float | None:
@@ -396,6 +407,239 @@ def _required_flag(value: str, label: str) -> bool:
 def _check_bounds(label: str, low: int | float | None, high: int | float | None) -> None:
     if low is not None and high is not None and low > high:
         raise FilterError(f"{label}: minimum is above maximum")
+
+
+IGNORED_QUERY_KEYS = {"page", "page_size", "pagination", "preview", "initial"}
+
+
+def _phrase(name: str) -> str:
+    words = []
+    for index, word in enumerate(name.split()):
+        words.append(word if index and word == "and" else word.capitalize())
+    return " ".join(words)
+
+
+def _managed_label(code: str) -> str:
+    labels = {
+        "flippa_broker": "Brokered by Flippa",
+        "owner": "Listed by Owner",
+        "partner_broker": "Listed by Partner Broker",
+    }
+    if code not in labels:
+        raise FilterError(f"filter[managed_by][]: unknown value {code!r}")
+    return labels[code]
+
+
+def _category_label(code: str) -> str:
+    labels = {value: _phrase(name) for name, value in CATEGORIES.items()}
+    if code not in labels:
+        raise FilterError(f"filter[listing_category][]: unknown value {code!r}")
+    return labels[code]
+
+
+def filters_from_search_url(url: str) -> dict[str, str]:
+    """Turn a Flippa search URL into filters.txt values. Missing filters are none."""
+    parsed = urllib.parse.urlparse(url.strip())
+    host = parsed.netloc.lower().removeprefix("www.")
+    if host != "flippa.com" or parsed.path.rstrip("/") != "/search":
+        raise FilterError("URL must be a https://flippa.com/search link")
+    query = urllib.parse.parse_qs(parsed.query, keep_blank_values=False)
+    values = {label: NONE for label in LABELS}
+
+    def one(key: str) -> str | None:
+        items = query.get(key, [])
+        if not items:
+            return None
+        if len(items) > 1:
+            raise FilterError(f"{key} appears more than once")
+        return items[0]
+
+    def many(key: str) -> list[str]:
+        return query.get(key, [])
+
+    keyword = one("query[keyword]")
+    if keyword:
+        values["Keyword"] = keyword
+    managed = many("filter[managed_by][]")
+    if managed:
+        values["Managed by"] = ", ".join(_managed_label(code) for code in managed)
+    price_min = one("filter[price][min]")
+    if price_min is not None:
+        values["Price minimum"] = _dollar_text(_whole_number(price_min, "filter[price][min]"))
+    price_max = one("filter[price][max]")
+    if price_max is not None:
+        values["Price maximum"] = _dollar_text(_whole_number(price_max, "filter[price][max]"))
+    categories = many("filter[listing_category][]")
+    if categories:
+        values["Category type"] = ", ".join(_category_label(code) for code in categories)
+    country = many("filter[seller_location][]")
+    if len(country) > 1:
+        raise FilterError("filter[seller_location][] appears more than once")
+    if country:
+        code = country[0].strip().lower()
+        if not re.fullmatch(r"[a-z]{2}", code):
+            raise FilterError(f"filter[seller_location][]: {country[0]!r} is not a 2-letter code")
+        values["Country"] = "United States" if code == "us" else code
+    age_min = one("filter[age][min]")
+    if age_min is not None:
+        values["Business age minimum"] = _age_text(_whole_number(age_min, "filter[age][min]"))
+    age_max = one("filter[age][max]")
+    if age_max is not None:
+        values["Business age maximum"] = _age_text(_whole_number(age_max, "filter[age][max]"))
+    _money_param(values, "Monthly profit minimum", one("filter[profit_per_month][min]"), "filter[profit_per_month][min]")
+    _money_param(values, "Monthly profit maximum", one("filter[profit_per_month][max]"), "filter[profit_per_month][max]")
+    _money_param(values, "Monthly revenue minimum", one("filter[revenue_per_month][min]"), "filter[revenue_per_month][min]")
+    _money_param(values, "Monthly revenue maximum", one("filter[revenue_per_month][max]"), "filter[revenue_per_month][max]")
+    values["Profit multiple"] = _multiple_text(
+        one("filter[multiple][min]"),
+        one("filter[multiple][max]"),
+    )
+    revenue_low = one("filter[revenue_multiple][min]")
+    revenue_high = one("filter[revenue_multiple][max]")
+    if revenue_low is not None:
+        values["Revenue multiple minimum"] = _one_multiple_text(revenue_low, "filter[revenue_multiple][min]")
+    if revenue_high is not None:
+        values["Revenue multiple maximum"] = _one_multiple_text(revenue_high, "filter[revenue_multiple][max]")
+    industries = many("filter[vertical][]")
+    if industries:
+        values["Industry"] = ", ".join(_industry_label(code) for code in industries)
+    _count_param(values, "Monthly users minimum", one("filter[uniques_per_month][min]"), "filter[uniques_per_month][min]")
+    _count_param(values, "Monthly users maximum", one("filter[uniques_per_month][max]"), "filter[uniques_per_month][max]")
+    _count_param(values, "Monthly pageviews minimum", one("filter[page_views_per_month][min]"), "filter[page_views_per_month][min]")
+    _count_param(values, "Monthly pageviews maximum", one("filter[page_views_per_month][max]"), "filter[page_views_per_month][max]")
+    _count_param(values, "Monthly app downloads minimum", one("filter[downloads_per_month][min]"), "filter[downloads_per_month][min]")
+    _count_param(values, "Monthly app downloads maximum", one("filter[downloads_per_month][max]"), "filter[downloads_per_month][max]")
+    sales = many("filter[sale_method][]")
+    if sales:
+        values["Sale type"] = ", ".join(_choice_label(code, SALE_TYPES, "filter[sale_method][]") for code in sales)
+    statuses = many("filter[status][]")
+    if statuses:
+        labels = {"open": "Open", "won": "Recently Sold"}
+        try:
+            values["Status"] = ", ".join(labels[code] for code in statuses)
+        except KeyError as error:
+            raise FilterError(f"filter[status][]: unknown value {error.args[0]!r}") from error
+    sort = one("sort_alias")
+    if sort:
+        label = {code: _phrase(name) for name, code in SORTS.items() if code}.get(sort)
+        if label is None:
+            raise FilterError(f"sort_alias: unknown value {sort!r}")
+        values["Sort"] = label
+
+    known = set(IGNORED_QUERY_KEYS)
+    known.update(
+        [
+            "query[keyword]",
+            "filter[managed_by][]",
+            "filter[price][min]",
+            "filter[price][max]",
+            "filter[listing_category][]",
+            "filter[seller_location][]",
+            "filter[age][min]",
+            "filter[age][max]",
+            "filter[profit_per_month][min]",
+            "filter[profit_per_month][max]",
+            "filter[revenue_per_month][min]",
+            "filter[revenue_per_month][max]",
+            "filter[multiple][min]",
+            "filter[multiple][max]",
+            "filter[revenue_multiple][min]",
+            "filter[revenue_multiple][max]",
+            "filter[vertical][]",
+            "filter[uniques_per_month][min]",
+            "filter[uniques_per_month][max]",
+            "filter[page_views_per_month][min]",
+            "filter[page_views_per_month][max]",
+            "filter[downloads_per_month][min]",
+            "filter[downloads_per_month][max]",
+            "filter[sale_method][]",
+            "filter[status][]",
+            "sort_alias",
+        ]
+    )
+    unknown = sorted(set(query) - known)
+    if unknown:
+        raise FilterError("unsupported search parameter " + unknown[0])
+    return values
+
+
+def _whole_number(raw: str, key: str) -> int:
+    if not re.fullmatch(r"[0-9]+", raw):
+        raise FilterError(f"{key}: {raw!r} is not a whole number")
+    return int(raw)
+
+
+def _dollar_text(amount: int) -> str:
+    return f"${amount:,}"
+
+
+def _age_text(months: int) -> str:
+    if months % 12 == 0 and months >= 12:
+        years = months // 12
+        unit = "year" if years == 1 else "years"
+        return f"{years} {unit}"
+    unit = "month" if months == 1 else "months"
+    return f"{months} {unit}"
+
+
+def _money_param(values: dict[str, str], label: str, raw: str | None, key: str) -> None:
+    if raw is not None:
+        values[label] = _dollar_text(_whole_number(raw, key))
+
+
+def _count_param(values: dict[str, str], label: str, raw: str | None, key: str) -> None:
+    if raw is not None:
+        values[label] = f"{_whole_number(raw, key):,}"
+
+
+def _multiple_display(raw: str, key: str) -> str:
+    try:
+        number = float(raw) / 10
+    except ValueError as error:
+        raise FilterError(f"{key}: {raw!r} is not a number") from error
+    if number < 0:
+        raise FilterError(f"{key}: {raw!r} is too small")
+    if float(number).is_integer():
+        return f"{int(number)}x"
+    return f"{number}x"
+
+
+def _multiple_text(low: str | None, high: str | None) -> str:
+    if low is None and high is None:
+        return NONE
+    low_text = _multiple_display(low, "filter[multiple][min]") if low is not None else None
+    high_text = _multiple_display(high, "filter[multiple][max]") if high is not None else None
+    if low_text and high_text:
+        return f"{low_text} to {high_text} annual"
+    if low_text:
+        return low_text
+    return f"to {high_text}"
+
+
+def _one_multiple_text(raw: str, key: str) -> str:
+    return _multiple_display(raw, key)
+
+
+def _industry_label(code: str) -> str:
+    labels = {value: _phrase(name) for name, value in INDUSTRIES.items()}
+    if code not in labels:
+        raise FilterError(f"filter[vertical][]: unknown value {code!r}")
+    return labels[code]
+
+
+def _choice_label(code: str, choices: dict[str, str], key: str) -> str:
+    labels = {value: _phrase(name) for name, value in choices.items()}
+    if code not in labels:
+        raise FilterError(f"{key}: unknown value {code!r}")
+    return labels[code]
+
+
+def apply_search_url(path: Path, url: str) -> Settings:
+    """Replace filter values from a Flippa search URL."""
+    values = filters_from_search_url(url)
+    settings = Settings([(label, values[label]) for label in LABELS])
+    write_filters_file(path, settings)
+    return settings
 
 
 def format_filters(filters: list[tuple[str, str]]) -> str:
@@ -467,6 +711,333 @@ def build_url(settings: Settings, page: int) -> str:
     if page > 1:
         pairs.append(("page", str(page)))
     return SEARCH_URL + "?" + urllib.parse.urlencode(pairs)
+
+
+DEFAULT_DELAY = 1.5
+DEFAULT_TIMEOUT = 60
+
+
+def write_filters_file(path: Path, settings: Settings) -> None:
+    """Write filters.txt."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(format_filters(settings.lines) + "\n", encoding="utf-8")
+
+
+def _empty(value) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _json_number(value: int | float | None) -> int | float | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _months_to_form(months: int | None) -> dict | None:
+    if months is None:
+        return None
+    if months % 12 == 0 and months >= 12:
+        years = months // 12
+        return {"amount": years, "unit": "years"}
+    return {"amount": months, "unit": "months"}
+
+
+def _sale_type_label(code: str) -> str:
+    return _choice_label(code, SALE_TYPES, "Sale type")
+
+
+def _status_label(code: str) -> str:
+    return _choice_label(code, STATUSES, "Status")
+
+
+def filter_options() -> dict:
+    """Choices for the local filter page."""
+    return {
+        "managed_by": [{"code": code, "label": _managed_label(code)} for code in MANAGED_BY.values()],
+        "categories": [{"code": code, "label": _category_label(code)} for code in CATEGORIES.values()],
+        "industries": [{"code": code, "label": _industry_label(code)} for code in INDUSTRIES.values()],
+        "sale_types": [{"code": code, "label": _sale_type_label(code)} for code in SALE_TYPES.values()],
+        "statuses": [{"code": code, "label": _status_label(code)} for code in STATUSES.values()],
+        "sorts": [{"value": NONE, "label": "None"}]
+        + [{"value": _phrase(name), "label": _phrase(name)} for name in SORTS],
+        "check_off": NONE,
+        "check_on": REQUIRED,
+    }
+
+
+def filter_form(settings: Settings) -> dict:
+    """Current filters as values the local page can show."""
+    values = dict(settings.lines)
+    return {
+        "keyword": settings.keyword or "",
+        "managed_by": list(settings.managed_by),
+        "price_min": settings.price_min,
+        "price_max": settings.price_max,
+        "price_max_under": settings.price_max_under,
+        "categories": list(settings.categories),
+        "country": "" if settings.country is None else values["Country"],
+        "age_min": _months_to_form(settings.age_min),
+        "age_max": _months_to_form(settings.age_max),
+        "profit_min": settings.profit_min,
+        "profit_max": settings.profit_max,
+        "revenue_min": settings.revenue_min,
+        "revenue_max": settings.revenue_max,
+        "multiple_min": _json_number(settings.multiple_min),
+        "multiple_max": _json_number(settings.multiple_max),
+        "revenue_multiple_min": _json_number(settings.revenue_multiple_min),
+        "revenue_multiple_max": _json_number(settings.revenue_multiple_max),
+        "industries": list(settings.industries),
+        "users_min": settings.users_min,
+        "users_max": settings.users_max,
+        "pageviews_min": settings.pageviews_min,
+        "pageviews_max": settings.pageviews_max,
+        "downloads_min": settings.downloads_min,
+        "downloads_max": settings.downloads_max,
+        "sale_methods": list(settings.sale_methods),
+        "statuses": list(settings.statuses),
+        "sort": values["Sort"],
+        "require_analytics": settings.require_analytics,
+        "require_revenue": settings.require_revenue,
+        "search_url": build_url(settings, 1),
+    }
+
+
+def _whole_amount(value, label: str) -> int:
+    if isinstance(value, bool):
+        raise FilterError(f"{label}: {value!r} should look like $300")
+    if isinstance(value, str):
+        text = value.strip().replace(",", "").replace("$", "").strip()
+        if not re.fullmatch(r"[0-9]+", text):
+            raise FilterError(f"{label}: {value!r} should look like $300")
+        return int(text)
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise FilterError(f"{label}: {value!r} should look like $300")
+        value = int(value)
+    if isinstance(value, int):
+        if value < 0:
+            raise FilterError(f"{label}: {value!r} is too small")
+        return value
+    raise FilterError(f"{label}: {value!r} should look like $300")
+
+
+def _amount_text(value, label: str, under: bool = False) -> str:
+    if _empty(value):
+        return NONE
+    if under and label != "Price maximum":
+        raise FilterError(f"{label}: under is only for Price maximum")
+    amount = _whole_amount(value, label)
+    text = f"{'under ' if under else ''}{_dollar_text(amount)}"
+    _money(text, label, allow_under=(label == "Price maximum"))
+    return text
+
+
+def _count_text(value, label: str) -> str:
+    if _empty(value):
+        return NONE
+    if isinstance(value, str):
+        text = value.strip()
+    elif isinstance(value, bool):
+        raise FilterError(f"{label}: {value!r} should be a number")
+    elif isinstance(value, float) and value.is_integer():
+        text = f"{int(value):,}"
+    elif isinstance(value, int):
+        text = f"{value:,}"
+    else:
+        raise FilterError(f"{label}: {value!r} should be a number")
+    number = _count(text, label)
+    if number is None:
+        return NONE
+    return f"{number:,}"
+
+
+def _optional_multiple(value, label: str) -> float | None:
+    if _empty(value):
+        return None
+    if isinstance(value, bool):
+        raise FilterError(f"{label}: {value!r} should look like 2x")
+    if isinstance(value, str):
+        text = value.strip().lower().rstrip("x").strip()
+        try:
+            number = float(text)
+        except ValueError as error:
+            raise FilterError(f"{label}: {value!r} should look like 2x") from error
+    elif isinstance(value, (int, float)):
+        number = float(value)
+    else:
+        raise FilterError(f"{label}: {value!r} should look like 2x")
+    if number < 0:
+        raise FilterError(f"{label}: {value!r} is too small")
+    return number
+
+
+def _scaled_multiple(number: float) -> str:
+    scaled = number * 10
+    if float(scaled).is_integer():
+        return str(int(scaled))
+    return str(scaled)
+
+
+def _profit_multiple_text(low, high) -> str:
+    low_number = _optional_multiple(low, "Profit multiple")
+    high_number = _optional_multiple(high, "Profit multiple")
+    low_raw = None if low_number is None else _scaled_multiple(low_number)
+    high_raw = None if high_number is None else _scaled_multiple(high_number)
+    return _multiple_text(low_raw, high_raw)
+
+
+def _single_multiple_text(value, label: str) -> str:
+    number = _optional_multiple(value, label)
+    if number is None:
+        return NONE
+    return _one_multiple_text(_scaled_multiple(number), label)
+
+
+def _age_form_text(value, label: str) -> str:
+    if _empty(value):
+        return NONE
+    if not isinstance(value, dict):
+        raise FilterError(f"{label}: {value!r} should look like 12 months or 2 years")
+    amount = value.get("amount")
+    unit = str(value.get("unit", "")).strip().lower()
+    if _empty(amount):
+        return NONE
+    if unit in {"year", "years"}:
+        unit_word = "years"
+    elif unit in {"month", "months"}:
+        unit_word = "months"
+    else:
+        raise FilterError(f"{label}: unit should be years or months")
+    months = _age(f"{amount} {unit_word}", label)
+    if months is None:
+        return NONE
+    return _age_text(months)
+
+
+def _keyword_text(value) -> str:
+    if _empty(value):
+        return NONE
+    if not isinstance(value, str):
+        raise FilterError("Keyword: expected text")
+    text = value.strip()
+    if _is_none(text):
+        return NONE
+    return text
+
+
+def _country_text(value) -> str:
+    if _empty(value):
+        return NONE
+    if not isinstance(value, str):
+        raise FilterError("Country: expected text")
+    text = value.strip()
+    if _is_none(text):
+        return NONE
+    _country(text)
+    if text.lower() in {"united states", "us"}:
+        return "United States"
+    return text.lower()
+
+
+def _sort_text(value) -> str:
+    if _empty(value):
+        return NONE
+    if not isinstance(value, str):
+        raise FilterError("Sort: expected text")
+    text = value.strip()
+    if _is_none(text):
+        return NONE
+    _sort(text)
+    for name in SORTS:
+        if name == text.lower():
+            return _phrase(name)
+    return text
+
+
+def _flag_text(value, label: str) -> str:
+    if value is True:
+        return REQUIRED
+    if value is False or _empty(value):
+        return NONE
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text == NONE:
+            return NONE
+        if text == REQUIRED:
+            return REQUIRED
+    raise FilterError(f"{label}: {value!r} should be {REQUIRED!r} or none")
+
+
+def _choice_text(value, labeler, label: str) -> str:
+    if value is None or value == [] or (isinstance(value, str) and (_empty(value) or _is_none(value))):
+        return NONE
+    if isinstance(value, str):
+        codes = _split_choices(value)
+    elif isinstance(value, list):
+        codes = value
+    else:
+        raise FilterError(f"{label}: expected a list")
+    labels: list[str] = []
+    for item in codes:
+        if not isinstance(item, str) or not item.strip():
+            raise FilterError(f"{label}: {item!r} is not a choice")
+        labels.append(labeler(item.strip()))
+    if not labels:
+        raise FilterError(f"{label}: {value!r} is empty")
+    return ", ".join(labels)
+
+
+def settings_from_form(form: dict) -> Settings:
+    """Build settings from the local page."""
+    if not isinstance(form, dict):
+        raise FilterError("filters should be an object")
+    lines = [
+        ("Keyword", _keyword_text(form.get("keyword"))),
+        ("Managed by", _choice_text(form.get("managed_by"), _managed_label, "Managed by")),
+        ("Price minimum", _amount_text(form.get("price_min"), "Price minimum")),
+        (
+            "Price maximum",
+            _amount_text(form.get("price_max"), "Price maximum", under=form.get("price_max_under") is True),
+        ),
+        ("Category type", _choice_text(form.get("categories"), _category_label, "Category type")),
+        ("Country", _country_text(form.get("country"))),
+        ("Business age minimum", _age_form_text(form.get("age_min"), "Business age minimum")),
+        ("Business age maximum", _age_form_text(form.get("age_max"), "Business age maximum")),
+        ("Monthly profit minimum", _amount_text(form.get("profit_min"), "Monthly profit minimum")),
+        ("Monthly profit maximum", _amount_text(form.get("profit_max"), "Monthly profit maximum")),
+        ("Monthly revenue minimum", _amount_text(form.get("revenue_min"), "Monthly revenue minimum")),
+        ("Monthly revenue maximum", _amount_text(form.get("revenue_max"), "Monthly revenue maximum")),
+        ("Profit multiple", _profit_multiple_text(form.get("multiple_min"), form.get("multiple_max"))),
+        (
+            "Revenue multiple minimum",
+            _single_multiple_text(form.get("revenue_multiple_min"), "Revenue multiple minimum"),
+        ),
+        (
+            "Revenue multiple maximum",
+            _single_multiple_text(form.get("revenue_multiple_max"), "Revenue multiple maximum"),
+        ),
+        ("Industry", _choice_text(form.get("industries"), _industry_label, "Industry")),
+        ("Monthly users minimum", _count_text(form.get("users_min"), "Monthly users minimum")),
+        ("Monthly users maximum", _count_text(form.get("users_max"), "Monthly users maximum")),
+        ("Monthly pageviews minimum", _count_text(form.get("pageviews_min"), "Monthly pageviews minimum")),
+        ("Monthly pageviews maximum", _count_text(form.get("pageviews_max"), "Monthly pageviews maximum")),
+        (
+            "Monthly app downloads minimum",
+            _count_text(form.get("downloads_min"), "Monthly app downloads minimum"),
+        ),
+        (
+            "Monthly app downloads maximum",
+            _count_text(form.get("downloads_max"), "Monthly app downloads maximum"),
+        ),
+        ("Sale type", _choice_text(form.get("sale_methods"), _sale_type_label, "Sale type")),
+        ("Status", _choice_text(form.get("statuses"), _status_label, "Status")),
+        ("Sort", _sort_text(form.get("sort"))),
+        ("Google Analytics", _flag_text(form.get("require_analytics"), "Google Analytics")),
+        ("Verified revenue", _flag_text(form.get("require_revenue"), "Verified revenue")),
+    ]
+    return Settings(lines)
 
 
 def fetch(url: str, timeout: float) -> str:
@@ -628,7 +1199,7 @@ def keep_listing(item: dict, settings: Settings) -> bool:
 
 
 def excluded_listing_ids(output_dir: Path) -> set[str]:
-    """Listing numbers in deleted.json, saved.json, or first_access.json."""
+    """Listing numbers in deleted, saved, first access, signed NDA, or waiting inquiry."""
     found: set[str] = set()
     deleted_path = output_dir / "deleted.json"
     if deleted_path.is_file():
@@ -658,6 +1229,24 @@ def excluded_listing_ids(output_dir: Path) -> set[str]:
                 number = str(item.get("listing_id", "")).strip()
                 if number:
                     found.add(number)
+    nda_path = output_dir / "nda.json"
+    if nda_path.is_file():
+        raw = nda_path.read_text(encoding="utf-8").strip()
+        data = json.loads(raw) if raw else []
+        for item in data:
+            if isinstance(item, dict):
+                number = str(item.get("listing_id", "")).strip()
+                if number:
+                    found.add(number)
+    waiting_path = output_dir / "waiting_inquiry.json"
+    if waiting_path.is_file():
+        raw = waiting_path.read_text(encoding="utf-8").strip()
+        data = json.loads(raw) if raw else []
+        for item in data:
+            if isinstance(item, dict):
+                number = str(item.get("listing_id", "")).strip()
+                if number:
+                    found.add(number)
     return found
 
 
@@ -675,7 +1264,7 @@ def scrape(settings: Settings, delay: float, timeout: float, excluded: set[str] 
     skipped = excluded or set()
     if skipped:
         print(
-            f"Skipping {len(skipped)} listing numbers already deleted, saved, or in first access.",
+            f"Skipping {len(skipped)} listing numbers already in Deleted, Top Choices, First access, Signed NDA, or Waiting inquiry.",
             file=sys.stderr,
         )
 
@@ -705,11 +1294,7 @@ def write_outputs(listings: list[dict], output_dir: Path, settings: Settings) ->
     csv_path = output_dir / "businesses.csv"
     json_path = output_dir / "businesses.json"
     names_path = output_dir / "names.txt"
-    filters_path = output_dir / "filters.txt"
-    filters_path.write_text(
-        format_filters(settings.lines) + "\n\n" + settings.checklist + "\n",
-        encoding="utf-8",
-    )
+    write_filters_file(output_dir / "filters.txt", settings)
 
     fieldnames = PUBLIC_FIELDS
     rows = [{key: item.get(key, "") for key in fieldnames} for item in listings]
@@ -732,14 +1317,14 @@ def main() -> None:
     parser.add_argument(
         "--delay",
         type=float,
-        default=1.5,
-        help="Seconds to wait between pages (default: 1.5).",
+        default=DEFAULT_DELAY,
+        help=f"Seconds to wait between pages (default: {DEFAULT_DELAY}).",
     )
     parser.add_argument(
         "--timeout",
         type=float,
-        default=60,
-        help="HTTP timeout in seconds (default: 60).",
+        default=DEFAULT_TIMEOUT,
+        help=f"HTTP timeout in seconds (default: {DEFAULT_TIMEOUT}).",
     )
     parser.add_argument(
         "--output",
@@ -747,14 +1332,22 @@ def main() -> None:
         default=Path("output"),
         help="Directory for filters.txt, businesses.csv, businesses.json, and names.txt.",
     )
+    parser.add_argument(
+        "--url",
+        help="Flippa search URL. Replaces the values in filters.txt, then runs the scrape.",
+    )
     args = parser.parse_args()
     if args.delay < 0:
         parser.error("--delay must be 0 or more")
     if args.timeout <= 0:
         parser.error("--timeout must be greater than 0")
 
+    filters_path = args.output / "filters.txt"
     try:
-        settings = read_filters(args.output / "filters.txt")
+        if args.url:
+            settings = apply_search_url(filters_path, args.url)
+        else:
+            settings = read_filters(filters_path)
     except FilterError as error:
         print(f"filters.txt: {error}", file=sys.stderr)
         sys.exit(1)

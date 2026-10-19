@@ -3,94 +3,422 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Flippa listings</title>
+  <title>Flippa search</title>
   <style>
     :root {
       color-scheme: light;
-      --ink: #1c1917;
-      --muted: #57534e;
-      --line: #e7e5e4;
-      --paper: #fafaf9;
+      --ink: #101828;
+      --muted: #667085;
+      --line: #eaecf0;
+      --paper: #f2f4f7;
       --card: #ffffff;
-      --link: #1d4ed8;
+      --green: #12b76a;
+      --green-dark: #0e9f5d;
+      --link: #175cd3;
       --save: #166534;
       --save-bg: #f0fdf4;
       --access: #1e3a8a;
       --access-bg: #eff6ff;
-      --delete: #b91c1c;
-      --delete-bg: #fef2f2;
+      --delete: #b42318;
+      --delete-bg: #fef3f2;
+      --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font: 15px/1.45 "Segoe UI", sans-serif;
+      font: 14px/1.45 "Segoe UI", sans-serif;
       color: var(--ink);
       background: var(--paper);
     }
-    header, main { width: min(1100px, calc(100% - 32px)); margin: 0 auto; }
-    header { padding: 28px 0 8px; }
-    h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.03em; }
-    p.lede { margin: 0; color: var(--muted); }
-    nav { display: flex; gap: 8px; margin: 22px 0 16px; }
-    nav button, .actions button {
-      border: 1px solid var(--line);
-      background: var(--card);
-      color: var(--ink);
-      border-radius: 999px;
-      padding: 8px 14px;
-      font: inherit;
-      cursor: pointer;
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px;
+      background: white;
+      border-bottom: 1px solid var(--line);
     }
-    nav button[aria-selected="true"] { background: var(--ink); color: white; border-color: var(--ink); }
-    table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); }
-    th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
-    th { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-    tr:last-child td { border-bottom: 0; }
-    a { color: var(--link); font-weight: 650; }
-    .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .mark {
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      background: var(--green);
+    }
+    .brand {
+      font-size: 22px;
+      font-weight: 750;
+      letter-spacing: -0.04em;
+    }
+    .local { color: var(--muted); font-size: 13px; }
+    .app {
+      display: grid;
+      grid-template-columns: 332px minmax(0, 1fr);
+      align-items: start;
+    }
+    #filters {
+      position: sticky;
+      top: 60px;
+      height: calc(100vh - 60px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: white;
+      border-right: 1px solid var(--line);
+    }
+    .filters-body { overflow: auto; min-height: 0; padding: 16px 16px 8px; flex: 1; }
+    .filters-label {
+      margin: 0 0 12px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    section { padding: 14px 0; border-top: 1px solid var(--line); }
+    section h2 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 10px;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #344054;
+    }
+    .count {
+      background: #ecfdf3;
+      color: #067647;
+      border-radius: 999px;
+      padding: 1px 7px;
+      font-size: 11px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    .field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
+    .keyword label, .field label { font-size: 13px; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      background: white;
+      padding: 8px 10px;
+    }
+    .keyword input { padding: 10px 12px; }
+    .range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .adorn { position: relative; display: block; }
+    .adorn > span {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      pointer-events: none;
+    }
+    .adorn > span:first-child { left: 10px; }
+    .adorn input { padding-left: 22px; }
+    .adorn.end > span { right: 10px; left: auto; }
+    .adorn.end input { padding-left: 10px; padding-right: 26px; }
+    .age { display: grid; grid-template-columns: 1fr 96px; gap: 8px; }
+    .choices { display: flex; flex-direction: column; gap: 2px; }
+    .choices.scroll {
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 8px;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 2px;
+      color: var(--ink);
+      font-size: 14px;
+    }
+    .check input { width: auto; accent-color: var(--green); }
+    .hint { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+    .checks {
+      margin: 8px -16px 0;
+      padding: 14px 16px;
+      background: #f8f6f3;
+      border-top: 1px solid #e7e1d8;
+      border-bottom: 1px solid #e7e1d8;
+    }
+    .search-bar {
+      flex-shrink: 0;
+      padding: 12px 16px 14px;
+      border-top: 1px solid var(--line);
+      background: white;
+    }
+    .presets { margin-bottom: 14px; }
+    .presets > label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .preset-row { display: flex; gap: 8px; }
+    .preset-row input { flex: 1; min-width: 0; }
+    .preset-row button {
+      flex-shrink: 0;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      background: white;
+      padding: 8px 12px;
+      font-weight: 700;
+    }
+    .preset-row button:hover:not(:disabled) { border-color: var(--green); color: var(--green-dark); }
+    .preset-row button:disabled { opacity: 0.65; cursor: wait; }
+    .preset-list {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+      max-height: 132px;
+      overflow: auto;
+    }
+    .preset-list li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 2px;
+      border-top: 1px solid var(--line);
+    }
+    .preset-name {
+      flex: 1;
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+    .preset-list button {
+      flex-shrink: 0;
+      border: 0;
+      background: none;
+      padding: 2px 0 2px 4px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--link);
+    }
+    .preset-list button.delete { color: var(--delete); background: none; border: 0; }
+    .preset-empty { color: var(--muted); font-size: 13px; }
+    button.primary {
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
+      background: var(--green);
+      color: white;
+      padding: 10px 14px;
+      font-weight: 700;
+    }
+    button.primary:hover:not(:disabled) { background: var(--green-dark); }
+    button.primary:disabled { opacity: 0.65; cursor: wait; }
+    #status, #error { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+    #status[hidden], #error[hidden] { display: none; }
+    #status.error, #error { color: var(--delete); background: var(--delete-bg); }
+    #status.ok { color: #067647; background: #ecfdf3; }
+    #flippa-link { display: inline-block; margin-top: 8px; color: var(--link); font-size: 13px; }
+    main { min-width: 0; padding: 18px 22px 48px; }
+    .results-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; }
+    h2.view { margin: 0; font-size: 22px; letter-spacing: -0.03em; }
+    .view-count { margin: 2px 0 0; color: var(--muted); }
+    nav { display: flex; gap: 18px; margin: 14px 0; border-bottom: 1px solid var(--line); }
+    nav button {
+      background: none;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      padding: 8px 0;
+      color: var(--muted);
+    }
+    nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--green); font-weight: 700; }
+    .review-help { margin: 0 0 14px; color: var(--muted); }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .toolbar button, .actions button {
+      border: 1px solid var(--line);
+      background: white;
+      border-radius: 999px;
+      padding: 7px 12px;
+    }
+    .card {
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .card-top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+    .name { color: var(--ink); font-size: 16px; font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
+    a.name:hover { color: var(--green-dark); }
+    .price { font-size: 18px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; }
+    .rating { display: flex; gap: 4px; }
+    .rating button {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: white;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .rating button[aria-pressed="true"] {
+      color: var(--save);
+      background: var(--save-bg);
+      border-color: #bbf7d0;
+      font-weight: 700;
+    }
+    .permalink { display: inline-block; margin-top: 4px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
+    .facts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px 12px;
+      margin: 14px 0 0;
+    }
+    .facts div { min-width: 0; }
+    .facts .wide { grid-column: 1 / -1; }
+    dt { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    dd { margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+    .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+    .badge {
+      background: #f2f4f7;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
     .save { color: var(--save); background: var(--save-bg); border-color: #bbf7d0; }
     .access { color: var(--access); background: var(--access-bg); border-color: #bfdbfe; }
     .delete { color: var(--delete); background: var(--delete-bg); border-color: #fecaca; }
-    .empty { padding: 28px 8px; color: var(--muted); }
-    .number { font-variant-numeric: tabular-nums; }
+    .empty { color: var(--muted); }
+    .muted { color: var(--muted); }
     ul.deleted { list-style: none; padding: 0; margin: 0; }
     ul.deleted li {
-      background: var(--card);
+      background: white;
       border: 1px solid var(--line);
       border-bottom: 0;
       padding: 12px 14px;
       font-variant-numeric: tabular-nums;
     }
-    ul.deleted li:last-child { border-bottom: 1px solid var(--line); }
-    .error { color: var(--delete); }
-    .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 12px; }
+    ul.deleted li:first-child { border-radius: 12px 12px 0 0; }
+    ul.deleted li:last-child { border-bottom: 1px solid var(--line); border-radius: 0 0 12px 12px; }
+    ul.deleted li:only-child { border-radius: 12px; border-bottom: 1px solid var(--line); }
+    ul.deleted .deleted-note {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .note-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(16, 24, 40, 0.45);
+    }
+    .note-backdrop[hidden] { display: none; }
+    .note-dialog {
+      width: min(440px, 100%);
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+    .note-dialog h3 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+    .note-dialog .hint { margin: 6px 0 12px; }
+    .note-dialog textarea { min-height: 88px; resize: vertical; }
+    .note-dialog .actions { justify-content: flex-end; }
+    @media (max-width: 960px) {
+      .app { grid-template-columns: 1fr; }
+      #filters { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .filters-body { overflow: visible; }
+      .facts { grid-template-columns: 1fr 1fr; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <h1>Flippa listings</h1>
-    <p class="lede">Open a listing, set a first-access date, save it for later, or delete it so the next scrape skips that listing number.</p>
-    <nav>
-      <button type="button" data-view="businesses" aria-selected="true">To review</button>
-      <button type="button" data-view="first_access" aria-selected="false">First access</button>
-      <button type="button" data-view="saved" aria-selected="false">Saved for later</button>
-      <button type="button" data-view="deleted" aria-selected="false">Deleted</button>
-    </nav>
+    <span class="mark" aria-hidden="true"></span>
+    <span class="brand">flippa</span>
+    <span class="local">local search</span>
   </header>
-  <main>
-    <p class="error" id="error" hidden></p>
-    <div id="list"></div>
-  </main>
+  <div class="app">
+    <form id="filters" autocomplete="off">
+      <p class="hint">Loading filters…</p>
+    </form>
+    <main>
+      <div class="results-head">
+        <div>
+          <h2 class="view" id="view-title">To review</h2>
+          <p class="view-count" id="view-count"></p>
+        </div>
+        <div class="toolbar" id="toolbar"></div>
+      </div>
+      <nav>
+        <button type="button" data-view="businesses" aria-selected="true">To review</button>
+        <button type="button" data-view="first_access" aria-selected="false">First access</button>
+        <button type="button" data-view="saved" aria-selected="false">Top Choices</button>
+        <button type="button" data-view="nda" aria-selected="false">Signed NDA</button>
+        <button type="button" data-view="waiting_inquiry" aria-selected="false">Waiting inquiry</button>
+        <button type="button" data-view="deleted" aria-selected="false">Deleted</button>
+      </nav>
+      <p class="review-help">Open a listing, set a First access date, add it to Top Choices, mark it Waiting inquiry or Signed NDA, or delete it so the next search skips that number.</p>
+      <p id="error" hidden></p>
+      <div id="list"></div>
+    </main>
+  </div>
+  <div id="note-backdrop" class="note-backdrop" hidden>
+    <form id="note-dialog" class="note-dialog" role="dialog" aria-modal="true" aria-labelledby="note-title">
+      <h3 id="note-title">Delete listing</h3>
+      <p class="hint" id="note-help">Add a note if you want. You can leave this blank.</p>
+      <label class="field" for="delete-note">Note
+        <textarea id="delete-note" maxlength="2000" rows="4" placeholder="Optional"></textarea>
+      </label>
+      <div class="actions">
+        <button type="button" id="note-cancel">Cancel</button>
+        <button type="submit" class="delete">Delete</button>
+      </div>
+    </form>
+  </div>
+  <noscript>This page needs JavaScript to load filters from the local server.</noscript>
   <script>
+    const form = document.querySelector("#filters");
     const list = document.querySelector("#list");
     const error = document.querySelector("#error");
     let view = "businesses";
-    let data = { businesses: [], saved: [], deleted: [], first_access: [] };
+    let data = { businesses: [], saved: [], deleted: [], first_access: [], nda: [], waiting_inquiry: [], ratings: {}, saved_filters: [] };
+    let filtersReady = false;
+    let running = false;
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[ch]));
+    }
 
     function viewDate(value) {
       if (!value) return "";
-      const [year, month, day] = value.split("-").map(Number);
+      const [year, month, day] = String(value).split("-").map(Number);
+      if (!year || !month || !day) return "";
       return new Date(year, month - 1, day).toLocaleDateString("en-US", {
         month: "long",
         day: "numeric",
@@ -99,28 +427,359 @@
     }
 
     function money(value) {
+      if (value === null || value === undefined || value === "") return "—";
       const amount = Number(value);
-      if (!Number.isFinite(amount)) return "";
+      if (!Number.isFinite(amount)) return "—";
       return "$" + amount.toLocaleString("en-US");
     }
 
-    function rowCells(item) {
-      return `
-        <td><a href="${item.url}" target="_blank" rel="noopener">${item.name}</a></td>
-        <td class="money">${money(item.price_usd)}</td>
-        <td>${item.location || ""}</td>
-        <td>${item.type || ""}</td>
-        <td class="money">${money(item.monthly_profit_usd)}</td>
-        <td class="number">${item.listing_id}</td>
-      `;
+    function moneyValue(amount) {
+      if (amount === null || amount === undefined || amount === "") return "";
+      return Number(amount).toLocaleString("en-US");
+    }
+
+    function multipleText(value) {
+      if (value === null || value === undefined || value === "") return "—";
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) return "—";
+      return amount + "x";
+    }
+
+    function badges(value) {
+      const text = String(value || "").trim();
+      if (!text) return `<span class="muted">None</span>`;
+      return text.split(",").map((part) => `<span class="badge">${escapeHtml(part.trim())}</span>`).join("");
+    }
+
+    function listingHref(item) {
+      const url = String(item.url || "");
+      if (/^https:\/\/flippa\.com\/\d+$/.test(url)) return url;
+      const id = String(item.listing_id || "");
+      if (/^\d+$/.test(id)) return "https://flippa.com/" + id;
+      return "";
+    }
+
+    function deletedRecord(item) {
+      if (item && typeof item === "object") {
+        return {
+          listing_id: String(item.listing_id ?? "").trim(),
+          name: String(item.name ?? "").trim(),
+          url: String(item.url ?? "").trim(),
+          note: String(item.note ?? "").trim(),
+        };
+      }
+      const id = String(item ?? "").trim();
+      return { listing_id: id, name: "", url: "", note: "" };
+    }
+
+    function fact(label, value) {
+      return `<div><dt>${label}</dt><dd>${value}</dd></div>`;
+    }
+
+    function setStatus(message, isError) {
+      const status = document.querySelector("#status");
+      if (!status) return;
+      status.hidden = !message;
+      status.textContent = message || "";
+      status.classList.toggle("error", Boolean(isError) && Boolean(message));
+      status.classList.toggle("ok", Boolean(message) && !isError);
+    }
+
+    function setSearchLink(url) {
+      const link = document.querySelector("#flippa-link");
+      if (!link) return;
+      if (!url || !String(url).startsWith("https://flippa.com/search")) {
+        link.hidden = true;
+        link.removeAttribute("href");
+        return;
+      }
+      link.hidden = false;
+      link.href = url;
+    }
+
+    function checkGroup(name, options, selected) {
+      const picked = new Set(selected || []);
+      return options.map((option) => {
+        const id = name + "-" + option.code;
+        const checked = picked.has(option.code) ? " checked" : "";
+        return `<label class="check" for="${escapeHtml(id)}"><input type="checkbox" id="${escapeHtml(id)}" name="${escapeHtml(name)}" value="${escapeHtml(option.code)}"${checked}>${escapeHtml(option.label)}</label>`;
+      }).join("");
+    }
+
+    function choiceSection(title, name, options, selected, scroll) {
+      const count = (selected || []).length;
+      const countHtml = count ? `<span class="count">${count}</span>` : "";
+      const klass = scroll ? "choices scroll" : "choices";
+      return `<section><h2>${escapeHtml(title)}${countHtml}</h2><div class="${klass}">${checkGroup(name, options, selected)}</div></section>`;
+    }
+
+    function moneyField(id, label, amount) {
+      return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><span class="adorn"><span>$</span><input id="${id}" inputmode="numeric" autocomplete="off" value="${escapeHtml(moneyValue(amount))}"></span></div>`;
+    }
+
+    function countField(id, label, amount) {
+      return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><input id="${id}" inputmode="numeric" autocomplete="off" value="${escapeHtml(moneyValue(amount))}"></div>`;
+    }
+
+    function multipleField(id, label, amount) {
+      const value = amount === null || amount === undefined ? "" : String(amount);
+      return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><span class="adorn end"><input id="${id}" inputmode="decimal" autocomplete="off" value="${escapeHtml(value)}"><span>x</span></span></div>`;
+    }
+
+    function ageField(id, label, value) {
+      const amount = value && value.amount !== undefined && value.amount !== null ? String(value.amount) : "";
+      const unit = value && value.unit === "months" ? "months" : "years";
+      const years = unit === "years" ? " selected" : "";
+      const months = unit === "months" ? " selected" : "";
+      return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><span class="age"><input id="${id}" inputmode="decimal" autocomplete="off" value="${escapeHtml(amount)}"><select id="${id}-unit" aria-label="${escapeHtml(label)} unit"><option value="years"${years}>years</option><option value="months"${months}>months</option></select></span></div>`;
+    }
+
+    function sortField(sorts, current) {
+      const value = String(current || "none");
+      const options = sorts.map((option) => {
+        const selected = option.value.toLowerCase() === value.toLowerCase() ? " selected" : "";
+        return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(option.label)}</option>`;
+      }).join("");
+      return `<section><h2>Sort</h2><div class="field"><label for="sort">Order</label><select id="sort">${options}</select></div><p class="hint">None leaves Flippa's default order.</p></section>`;
+    }
+
+    function flagField(id, label, on, offLabel, onLabel) {
+      return `<div class="field"><label for="${id}">${escapeHtml(label)}</label><select id="${id}"><option value="none"${on ? "" : " selected"}>${escapeHtml(offLabel)}</option><option value="required"${on ? " selected" : ""}>${escapeHtml(onLabel)}</option></select></div>`;
+    }
+
+    function renderFilters(filters) {
+      const source = filters.form || {};
+      const options = filters.options;
+      const under = source.price_max_under ? " checked" : "";
+      form.innerHTML = `
+        <div class="filters-body">
+          <p class="filters-label">Filters</p>
+          <div class="presets">
+            <label for="filter-name">Save filter</label>
+            <div class="preset-row">
+              <input id="filter-name" maxlength="80" autocomplete="off" placeholder="Name">
+              <button type="button" id="save-filter">Save</button>
+            </div>
+            <ul class="preset-list" id="saved-filter-list"></ul>
+            <p class="hint">Load fills the form. Search is what imports listings.</p>
+          </div>
+          <div class="keyword"><label for="keyword">Keyword</label><input id="keyword" autocomplete="off" placeholder="Keyword" value="${escapeHtml(source.keyword || "")}"></div>
+          ${choiceSection("Managed by", "managed_by", options.managed_by, source.managed_by)}
+          <section>
+            <h2>Price</h2>
+            <div class="range">
+              ${moneyField("price-min", "Minimum", source.price_min)}
+              <div class="field">
+                <label for="price-max">Maximum</label>
+                <span class="adorn"><span>$</span><input id="price-max" inputmode="numeric" autocomplete="off" value="${escapeHtml(moneyValue(source.price_max))}"></span>
+                <label class="check" for="price-under"><input type="checkbox" id="price-under"${under}>Under</label>
+              </div>
+            </div>
+            <p class="hint">Under stores the maximum as under that price.</p>
+          </section>
+          ${choiceSection("Category", "categories", options.categories, source.categories, true)}
+          <section>
+            <h2>Country</h2>
+            <div class="field"><label for="country">Seller location</label><input id="country" autocomplete="off" placeholder="United States or a 2-letter code" value="${escapeHtml(source.country || "")}"></div>
+          </section>
+          <section>
+            <h2>Business age</h2>
+            <div class="range">${ageField("age-min", "Minimum", source.age_min)}${ageField("age-max", "Maximum", source.age_max)}</div>
+          </section>
+          <section>
+            <h2>Monthly profit</h2>
+            <div class="range">${moneyField("profit-min", "Minimum", source.profit_min)}${moneyField("profit-max", "Maximum", source.profit_max)}</div>
+          </section>
+          <section>
+            <h2>Monthly revenue</h2>
+            <div class="range">${moneyField("revenue-min", "Minimum", source.revenue_min)}${moneyField("revenue-max", "Maximum", source.revenue_max)}</div>
+          </section>
+          <section>
+            <h2>Profit multiple</h2>
+            <div class="range">${multipleField("multiple-min", "Minimum", source.multiple_min)}${multipleField("multiple-max", "Maximum", source.multiple_max)}</div>
+          </section>
+          <section>
+            <h2>Revenue multiple</h2>
+            <div class="range">${multipleField("revenue-multiple-min", "Minimum", source.revenue_multiple_min)}${multipleField("revenue-multiple-max", "Maximum", source.revenue_multiple_max)}</div>
+          </section>
+          ${choiceSection("Industry", "industries", options.industries, source.industries, true)}
+          <section>
+            <h2>Traffic</h2>
+            <div class="range">${countField("users-min", "Users minimum", source.users_min)}${countField("users-max", "Users maximum", source.users_max)}</div>
+            <div class="range" style="margin-top:8px">${countField("pageviews-min", "Pageviews minimum", source.pageviews_min)}${countField("pageviews-max", "Pageviews maximum", source.pageviews_max)}</div>
+            <div class="range" style="margin-top:8px">${countField("downloads-min", "App downloads minimum", source.downloads_min)}${countField("downloads-max", "App downloads maximum", source.downloads_max)}</div>
+          </section>
+          ${choiceSection("Sale type", "sale_methods", options.sale_types, source.sale_methods)}
+          ${choiceSection("Status", "statuses", options.statuses, source.statuses)}
+          ${sortField(options.sorts, source.sort || "none")}
+          <section class="checks">
+            <h2>Listing checks</h2>
+            <p class="hint">These are card checks, not Flippa search filters. Required keeps a listing only when the imported card shows that proof. None turns the check off.</p>
+            <div class="range">
+              ${flagField("analytics", "Google Analytics", source.require_analytics, options.check_off, options.check_on)}
+              ${flagField("revenue-check", "Verified revenue", source.require_revenue, options.check_off, options.check_on)}
+            </div>
+          </section>
+        </div>
+        <div class="search-bar">
+          <p id="status" role="status" hidden></p>
+          <button class="primary" id="search" type="submit">Search Flippa</button>
+          <p class="hint">Saves filters.txt and imports Flippa's public search pages. To review is replaced. Top Choices, First access, Signed NDA, Waiting inquiry, and Deleted numbers stay and are skipped.</p>
+          <a id="flippa-link" target="_blank" rel="noopener" hidden>Open the saved search on Flippa</a>
+        </div>`;
+      setSearchLink(source.search_url);
+      renderSavedFilters();
+      if (filters.error) setStatus(filters.error, true);
+    }
+
+    function renderSavedFilters() {
+      const box = document.querySelector("#saved-filter-list");
+      if (!box) return;
+      const names = Array.isArray(data.saved_filters) ? data.saved_filters : [];
+      if (!names.length) {
+        box.innerHTML = `<li class="preset-empty">No saved filters yet.</li>`;
+        return;
+      }
+      box.innerHTML = names.map((name) => {
+        const safe = escapeHtml(name);
+        return `<li><span class="preset-name">${safe}</span><button type="button" data-load-filter="${safe}">Load</button><button type="button" class="delete" data-delete-filter="${safe}">Delete</button></li>`;
+      }).join("");
+    }
+
+    function applyPresetForm(formValues) {
+      const active = (data.filters && data.filters.form) || {};
+      renderFilters({
+        ...(data.filters || {}),
+        error: null,
+        form: {
+          ...formValues,
+          search_url: active.search_url || "",
+        },
+      });
+    }
+
+    function selectedCodes(name) {
+      return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map((input) => input.value);
+    }
+
+    function readMoney(id) {
+      const raw = document.querySelector(id).value.trim();
+      if (!raw) return null;
+      const cleaned = raw.replace(/[$,\s]/g, "");
+      if (!/^\d+$/.test(cleaned)) return raw;
+      return Number(cleaned);
+    }
+
+    function readMultiple(id) {
+      const raw = document.querySelector(id).value.trim();
+      if (!raw) return null;
+      const cleaned = raw.replace(/x/ig, "").trim();
+      if (!/^\d+(\.\d+)?$/.test(cleaned)) return raw;
+      return Number(cleaned);
+    }
+
+    function readAge(amountId, unitId) {
+      const raw = document.querySelector(amountId).value.trim();
+      if (!raw) return null;
+      return { amount: raw, unit: document.querySelector(unitId).value };
+    }
+
+    function collectForm() {
+      return {
+        keyword: document.querySelector("#keyword").value,
+        managed_by: selectedCodes("managed_by"),
+        price_min: readMoney("#price-min"),
+        price_max: readMoney("#price-max"),
+        price_max_under: document.querySelector("#price-under").checked,
+        categories: selectedCodes("categories"),
+        country: document.querySelector("#country").value,
+        age_min: readAge("#age-min", "#age-min-unit"),
+        age_max: readAge("#age-max", "#age-max-unit"),
+        profit_min: readMoney("#profit-min"),
+        profit_max: readMoney("#profit-max"),
+        revenue_min: readMoney("#revenue-min"),
+        revenue_max: readMoney("#revenue-max"),
+        multiple_min: readMultiple("#multiple-min"),
+        multiple_max: readMultiple("#multiple-max"),
+        revenue_multiple_min: readMultiple("#revenue-multiple-min"),
+        revenue_multiple_max: readMultiple("#revenue-multiple-max"),
+        industries: selectedCodes("industries"),
+        users_min: readMoney("#users-min"),
+        users_max: readMoney("#users-max"),
+        pageviews_min: readMoney("#pageviews-min"),
+        pageviews_max: readMoney("#pageviews-max"),
+        downloads_min: readMoney("#downloads-min"),
+        downloads_max: readMoney("#downloads-max"),
+        sale_methods: selectedCodes("sale_methods"),
+        statuses: selectedCodes("statuses"),
+        sort: document.querySelector("#sort").value,
+        require_analytics: document.querySelector("#analytics").value === "required",
+        require_revenue: document.querySelector("#revenue-check").value === "required",
+      };
+    }
+
+    function setBusy(busy) {
+      const button = document.querySelector("#search");
+      if (!button) return;
+      button.disabled = busy;
+      button.textContent = busy ? "Importing…" : "Search Flippa";
+      form.setAttribute("aria-busy", String(busy));
+    }
+
+    function actionButtons(viewName, id) {
+      const nda = `<button type="button" class="save" data-action="nda" data-id="${id}">Signed NDA</button>`;
+      const waiting = `<button type="button" class="access" data-action="waiting-inquiry" data-id="${id}">Waiting inquiry</button>`;
+      const remove = `<button type="button" class="delete" data-action="delete" data-id="${id}">Delete</button>`;
+      if (viewName === "waiting_inquiry") {
+        return `<button type="button" class="access" data-action="first-access" data-id="${id}">First access</button><button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${nda}${remove}`;
+      }
+      if (viewName === "saved") {
+        return `<button type="button" class="save" data-action="restore" data-id="${id}">Back to review</button>${nda}${waiting}${remove}`;
+      }
+      if (viewName === "first_access") {
+        return `${nda}${waiting}${remove}`;
+      }
+      if (viewName === "nda") {
+        return `${waiting}${remove}`;
+      }
+      return `<button type="button" class="access" data-action="first-access" data-id="${id}">First access</button><button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${nda}${waiting}${remove}`;
+    }
+
+    function ratingControl(id) {
+      const current = Number((data.ratings || {})[id] || 0);
+      const buttons = [1, 2, 3, 4, 5].map((score) => {
+        const pressed = current === score;
+        const label = pressed ? `Clear rating ${score}` : `Rate ${score}`;
+        return `<button type="button" data-action="rate" data-id="${id}" data-rating="${score}" aria-pressed="${pressed}" aria-label="${label}">${score}</button>`;
+      }).join("");
+      return `<div class="rating" role="group" aria-label="Rating">${buttons}</div>`;
+    }
+
+    function card(item) {
+      const href = listingHref(item);
+      const name = escapeHtml(item.name || "Untitled");
+      const title = href
+        ? `<a class="name" href="${escapeHtml(href)}" target="_blank" rel="noopener">${name}</a>`
+        : `<span class="name">${name}</span>`;
+      const link = href
+        ? `<a class="permalink" href="${escapeHtml(href)}" target="_blank" rel="noopener">${escapeHtml(href.replace(/^https:\/\//, ""))}</a>`
+        : "";
+      const id = String(item.listing_id || "");
+      const safeId = /^\d+$/.test(id) ? id : "";
+      const when = view === "first_access" ? fact("Can view on", escapeHtml(viewDate(item.view_on) || "—")) : "";
+      const rating = safeId ? ratingControl(safeId) : "";
+      const actions = safeId ? `<div class="actions">${actionButtons(view, safeId)}</div>` : "";
+      return `<article class="card">${`<div class="card-top">${title}<div class="card-side"><div class="price">${money(item.price_usd)}</div>${rating}</div></div>`}${link}<dl class="facts">${fact("Location", escapeHtml(item.location || "—"))}${fact("Type", escapeHtml(item.type || "—"))}${fact("Profit", money(item.monthly_profit_usd))}${fact("Multiple", multipleText(item.profit_multiple))}${fact("Age", escapeHtml(item.age || "—"))}${when}<div class="wide"><dt>Verifications</dt><dd class="badges">${badges(item.verifications)}</dd></div></dl>${actions}</article>`;
     }
 
     function render() {
       const titles = {
-        businesses: ["To review", data.businesses.length],
-        first_access: ["First access", data.first_access.length],
-        saved: ["Saved for later", data.saved.length],
-        deleted: ["Deleted", data.deleted.length],
+        businesses: ["To review", data.businesses.length, "listings"],
+        first_access: ["First access", data.first_access.length, "listings"],
+        saved: ["Top Choices", data.saved.length, "listings"],
+        nda: ["Signed NDA", (data.nda || []).length, "listings"],
+        waiting_inquiry: ["Waiting inquiry", (data.waiting_inquiry || []).length, "listings"],
+        deleted: ["Deleted", data.deleted.length, "listings"],
       };
       document.querySelectorAll("nav button").forEach((button) => {
         const selected = button.dataset.view === view;
@@ -128,108 +787,46 @@
         const [label, count] = titles[button.dataset.view];
         button.textContent = `${label} (${count})`;
       });
-
-      if (view === "deleted") {
-        const deletedBody = data.deleted.length
-          ? `<ul class="deleted">${data.deleted.map((number) => `<li>Listing ${number}</li>`).join("")}</ul>`
-          : `<p class="empty">No deleted listing numbers yet.</p>`;
-        list.innerHTML = `${toolbar()}${deletedBody}`;
-        return;
-      }
-
-      const rows = {
-        businesses: data.businesses,
-        saved: data.saved,
-        first_access: data.first_access,
-      }[view];
-      const emptyText = {
-        businesses: "No listings to review.",
-        saved: "Nothing saved for later.",
-        first_access: "Nothing waiting for first access.",
-      }[view];
-      if (!rows.length) {
-        list.innerHTML = `${toolbar()}<p class="empty">${emptyText}</p>`;
-        return;
-      }
-      const action = {
-        saved: (id) => `<button class="save" data-action="restore" data-id="${id}">Back to review</button><button class="delete" data-action="delete" data-id="${id}">Delete</button>`,
-        first_access: (id) => `<button class="delete" data-action="delete" data-id="${id}">Delete</button>`,
-        businesses: (id) => `<button class="access" data-action="first-access" data-id="${id}">First access</button><button class="save" data-action="save" data-id="${id}">Save for later</button><button class="delete" data-action="delete" data-id="${id}">Delete</button>`,
-      }[view];
-      const dateHeader = view === "first_access" ? "<th>Can view on</th>" : "";
-      list.innerHTML = `
-        ${toolbar()}
-        <table>
-          <thead>
-            <tr>
-              <th>Name</th><th>Price</th><th>Location</th><th>Type</th><th>Monthly profit</th><th>Listing</th>${dateHeader}<th></th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map((item) => `<tr>${rowCells(item)}${view === "first_access" ? `<td>${viewDate(item.view_on)}</td>` : ""}<td><div class="actions">${action(item.listing_id)}</div></td></tr>`).join("")}
-          </tbody>
-        </table>`;
-    }
-
-    async function refresh() {
-      const response = await fetch("/api/state");
-      data = await response.json();
-      render();
-    }
-
-    async function act(action, listingId) {
-      error.hidden = true;
-      const body = { listing_id: listingId };
-      if (action === "first-access") {
-        const answer = window.prompt("How many days until this listing can be viewed?");
-        if (answer === null) return;
-        const days = Number(answer.trim());
-        if (!Number.isInteger(days) || days < 1) {
-          error.hidden = false;
-          error.textContent = "Enter a whole number of days, 1 or more.";
-          return;
-        }
-        body.days = days;
-      }
-      const response = await fetch("/api/" + action, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        error.hidden = false;
-        error.textContent = payload.error || "Could not update the list.";
-        return;
-      }
-      data = payload;
-      if (action === "first-access") view = "first_access";
-      render();
-    }
-
-    document.querySelector("nav").addEventListener("click", (event) => {
-      const button = event.target.closest("button");
-      if (!button) return;
-      view = button.dataset.view;
-      render();
-    });
-    function toolbar() {
+      const [label, count, unit] = titles[view];
+      document.querySelector("#view-title").textContent = label;
+      document.querySelector("#view-count").textContent = `${count} ${unit}`;
       const deleteAll = view === "businesses"
         ? `<button type="button" class="delete" data-action="delete-all">Delete all</button>`
         : "";
-      return `<div class="toolbar"><button type="button" data-action="copy-links">Copy all links</button>${deleteAll}</div>`;
+      document.querySelector("#toolbar").innerHTML = `<button type="button" data-action="copy-links">Copy all links</button>${deleteAll}`;
+
+      if (view === "deleted") {
+        list.innerHTML = data.deleted.length
+          ? `<ul class="deleted">${data.deleted.map((item) => {
+              const record = deletedRecord(item);
+              const href = listingHref(record);
+              const label = escapeHtml(record.name || record.listing_id || "Listing");
+              const title = href
+                ? `<a class="name" href="${escapeHtml(href)}" target="_blank" rel="noopener">${label}</a>`
+                : `<span class="name">${label}</span>`;
+              const note = record.note ? `<p class="deleted-note">${escapeHtml(record.note)}</p>` : "";
+              return `<li>${title}${note}</li>`;
+            }).join("")}</ul>`
+          : `<p class="empty">No deleted listings yet.</p>`;
+        return;
+      }
+      const rows = { businesses: data.businesses, saved: data.saved, first_access: data.first_access, nda: data.nda || [], waiting_inquiry: data.waiting_inquiry || [] }[view];
+      const emptyText = {
+        businesses: "No listings to review. Set filters and search.",
+        saved: "Nothing in Top Choices.",
+        first_access: "Nothing waiting for first access.",
+        nda: "Nothing in Signed NDA.",
+        waiting_inquiry: "Nothing in Waiting inquiry.",
+      }[view];
+      list.innerHTML = rows.length ? rows.map(card).join("") : `<p class="empty">${emptyText}</p>`;
     }
 
     function linksForCurrentTab() {
       if (view === "deleted") {
-        return data.deleted.filter(Boolean).map((number) => `https://flippa.com/${number}`);
+        return data.deleted.map((item) => listingHref(deletedRecord(item))).filter(Boolean);
       }
-      const rows = {
-        businesses: data.businesses,
-        saved: data.saved,
-        first_access: data.first_access,
-      }[view] || [];
-      return rows.map((item) => item.url).filter(Boolean);
+      const rows = { businesses: data.businesses, saved: data.saved, first_access: data.first_access, nda: data.nda || [], waiting_inquiry: data.waiting_inquiry || [] }[view] || [];
+      return rows.map(listingHref).filter(Boolean);
     }
 
     async function copyLinks(button) {
@@ -243,14 +840,268 @@
       await navigator.clipboard.writeText(links.join("\n"));
       const label = button.textContent;
       button.textContent = `Copied ${links.length} links`;
-      window.setTimeout(() => {
-        button.textContent = label;
-      }, 1500);
+      window.setTimeout(() => { button.textContent = label; }, 1500);
     }
 
-    list.addEventListener("click", (event) => {
+    async function act(action, listingId, extra) {
+      error.hidden = true;
+      const body = { listing_id: listingId };
+      if (extra && Object.prototype.hasOwnProperty.call(extra, "note")) body.note = extra.note;
+      if (action === "first-access") {
+        const answer = window.prompt("How many days until this listing can be viewed?");
+        if (answer === null) return;
+        const days = Number(answer.trim());
+        if (!Number.isInteger(days) || days < 1) {
+          error.hidden = false;
+          error.textContent = "Enter a whole number of days, 1 or more.";
+          return;
+        }
+        body.days = days;
+      }
+      let response;
+      try {
+        response = await fetch("/api/" + action, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+      } catch (requestError) {
+        error.hidden = false;
+        error.textContent = "The page could not reach the local server.";
+        return;
+      }
+      let payload;
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        error.hidden = false;
+        error.textContent = "The local server returned an unexpected response.";
+        return;
+      }
+      if (!response.ok) {
+        error.hidden = false;
+        error.textContent = payload.error || "Could not update the list.";
+        return;
+      }
+      data = payload;
+      render();
+    }
+
+    async function rateListing(listingId, rating) {
+      error.hidden = true;
+      let response;
+      try {
+        response = await fetch("/api/rate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listing_id: listingId, rating }),
+        });
+      } catch (requestError) {
+        error.hidden = false;
+        error.textContent = "The page could not reach the local server.";
+        return;
+      }
+      let payload;
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        error.hidden = false;
+        error.textContent = "The local server returned an unexpected response.";
+        return;
+      }
+      if (!response.ok) {
+        error.hidden = false;
+        error.textContent = payload.error || "Could not save that rating.";
+        return;
+      }
+      data = payload;
+      render();
+    }
+
+    let savingPreset = false;
+
+    async function savePreset() {
+      if (savingPreset || !document.querySelector("#keyword")) return;
+      const input = document.querySelector("#filter-name");
+      const name = input.value.trim();
+      error.hidden = true;
+      if (!name) {
+        setStatus("Enter a name for this filter.", true);
+        input.focus();
+        return;
+      }
+      savingPreset = true;
+      const button = document.querySelector("#save-filter");
+      button.disabled = true;
+      try {
+        const response = await fetch("/api/save-filter", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...collectForm(), name }),
+        });
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          setStatus("The local server returned an unexpected response.", true);
+          return;
+        }
+        if (!response.ok) {
+          setStatus(payload.error || "Could not save that filter.", true);
+          return;
+        }
+        data.saved_filters = payload.saved_filters || [];
+        input.value = "";
+        renderSavedFilters();
+        setStatus(`Saved "${payload.name}".`, false);
+      } catch (requestError) {
+        setStatus("The page could not reach the local server.", true);
+      } finally {
+        savingPreset = false;
+        if (button.isConnected) button.disabled = false;
+      }
+    }
+
+    async function loadPreset(name) {
+      if (!document.querySelector("#keyword")) return;
+      error.hidden = true;
+      try {
+        const response = await fetch("/api/load-filter", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          setStatus("The local server returned an unexpected response.", true);
+          return;
+        }
+        if (!response.ok) {
+          setStatus(payload.error || "Could not load that filter.", true);
+          return;
+        }
+        applyPresetForm(payload.form || {});
+        setStatus(`Loaded "${name}". Click Search to import listings.`, false);
+      } catch (requestError) {
+        setStatus("The page could not reach the local server.", true);
+      }
+    }
+
+    async function deletePreset(name) {
+      if (!window.confirm(`Delete saved filter "${name}"?`)) return;
+      error.hidden = true;
+      try {
+        const response = await fetch("/api/delete-filter", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          setStatus("The local server returned an unexpected response.", true);
+          return;
+        }
+        if (!response.ok) {
+          setStatus(payload.error || "Could not delete that filter.", true);
+          return;
+        }
+        data.saved_filters = payload.saved_filters || [];
+        renderSavedFilters();
+        setStatus(`Deleted "${name}".`, false);
+      } catch (requestError) {
+        setStatus("The page could not reach the local server.", true);
+      }
+    }
+
+    async function onSubmit(event) {
+      event.preventDefault();
+      if (document.activeElement && document.activeElement.id === "filter-name") {
+        savePreset();
+        return;
+      }
+      if (running || !document.querySelector("#keyword")) return;
+      running = true;
+      setBusy(true);
+      error.hidden = true;
+      setStatus("Importing Flippa search results. Page progress prints in the flippa-scraper window.", false);
+      try {
+        const response = await fetch("/api/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(collectForm()),
+        });
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          setStatus("The local server returned an unexpected response.", true);
+          return;
+        }
+        if (!response.ok) {
+          setStatus(payload.error || "Search failed.", true);
+          return;
+        }
+        data = payload;
+        const skipped = payload.skipped
+          ? ` ${payload.skipped} listing numbers already in Deleted, Top Choices, First access, Signed NDA, or Waiting inquiry were skipped.`
+          : "";
+        setStatus(`Imported ${payload.imported} listings.${skipped}`, false);
+        if (payload.filters && payload.filters.form) setSearchLink(payload.filters.form.search_url);
+        view = "businesses";
+        render();
+      } catch (requestError) {
+        setStatus("The page could not reach the local server.", true);
+      } finally {
+        running = false;
+        setBusy(false);
+      }
+    }
+
+    async function refresh() {
+      const response = await fetch("/api/state");
+      if (!response.ok) throw new Error("Could not load this page from the local server.");
+      data = await response.json();
+      if (!filtersReady) {
+        renderFilters(data.filters || {});
+        filtersReady = true;
+      }
+      render();
+    }
+
+    form.addEventListener("submit", onSubmit);
+    form.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || !event.target || event.target.id !== "filter-name") return;
+      event.preventDefault();
+      savePreset();
+    });
+    form.addEventListener("click", (event) => {
       const button = event.target.closest("button");
       if (!button) return;
+      if (button.id === "save-filter") {
+        event.preventDefault();
+        savePreset();
+        return;
+      }
+      if (button.dataset.loadFilter) {
+        loadPreset(button.dataset.loadFilter);
+        return;
+      }
+      if (button.dataset.deleteFilter) deletePreset(button.dataset.deleteFilter);
+    });
+    document.querySelector("nav").addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button) return;
+      view = button.dataset.view;
+      error.hidden = true;
+      render();
+    });
+    document.querySelector("main").addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button || !button.dataset.action) return;
       if (button.dataset.action === "copy-links") {
         copyLinks(button);
         return;
@@ -262,9 +1113,64 @@
         act("delete-all", "");
         return;
       }
+      if (button.dataset.action === "delete") {
+        openDeleteNote(button.dataset.id);
+        return;
+      }
+      if (button.dataset.action === "rate") {
+        const listingId = button.dataset.id;
+        const score = Number(button.dataset.rating);
+        const current = Number((data.ratings || {})[listingId] || 0);
+        rateListing(listingId, current === score ? null : score);
+        return;
+      }
       act(button.dataset.action, button.dataset.id);
     });
-    refresh();
+
+    let pendingDeleteId = "";
+
+    function listingTitle(id) {
+      const pools = [data.businesses, data.saved, data.first_access, data.nda || [], data.waiting_inquiry || []];
+      for (const rows of pools) {
+        const row = (rows || []).find((item) => String(item.listing_id) === String(id));
+        if (row) return String(row.name || id);
+      }
+      return String(id);
+    }
+
+    function openDeleteNote(id) {
+      pendingDeleteId = id;
+      document.querySelector("#note-title").textContent = listingTitle(id);
+      const input = document.querySelector("#delete-note");
+      input.value = "";
+      document.querySelector("#note-backdrop").hidden = false;
+      input.focus();
+    }
+
+    function closeDeleteNote() {
+      pendingDeleteId = "";
+      document.querySelector("#note-backdrop").hidden = true;
+      document.querySelector("#delete-note").value = "";
+    }
+
+    document.querySelector("#note-dialog").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const id = pendingDeleteId;
+      if (!id) return;
+      const note = document.querySelector("#delete-note").value.trim();
+      closeDeleteNote();
+      act("delete", id, { note });
+    });
+    document.querySelector("#note-cancel").addEventListener("click", closeDeleteNote);
+    document.querySelector("#note-backdrop").addEventListener("click", (event) => {
+      if (event.target.id === "note-backdrop") closeDeleteNote();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && pendingDeleteId) closeDeleteNote();
+    });
+    refresh().catch((loadError) => {
+      form.innerHTML = `<p class="hint">${escapeHtml(loadError.message)}</p>`;
+    });
   </script>
 </body>
 </html>

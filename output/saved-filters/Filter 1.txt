@@ -1,0 +1,35 @@
+Keyword                        none
+Managed by                     none
+Price minimum                  $100,000
+Price maximum                  $250,000
+Category type                  none
+Country                        United States
+Business age minimum           2 years
+Business age maximum           none
+Monthly profit minimum         none
+Monthly profit maximum         none
+Monthly revenue minimum        none
+Monthly revenue maximum        none
+Profit multiple                none
+Revenue multiple minimum       none
+Revenue multiple maximum       none
+Industry                       Automotive, Business, Education, Electronics, Entertainment, Lifestyle, Food and Drink, General Knowledge, Hobbies and Games, Home and Garden, Internet, Sports and Outdoor, Travel
+Monthly users minimum          none
+Monthly users maximum          none
+Monthly pageviews minimum      none
+Monthly pageviews maximum      none
+Monthly app downloads minimum  none
+Monthly app downloads maximum  none
+Sale type                      none
+Status                         Open
+Sort                           none
+Google Analytics               none
+Verified revenue               none
+Seller ID / phone              not a Flippa search filter
+
+Still check by hand before bidding:
+- Read-only Google Analytics, Search Console, and payment processor access
+- Traffic is not paid ads, bots, or one fragile keyword
+- Wayback Machine history and a trademark check on the brand
+- Pay through Flippa Escrow or Escrow.com
+- Seller reviews, verified ID, and phone are not search filters
