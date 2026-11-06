@@ -14,13 +14,10 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import re
 import socket
-import subprocess
 import sys
 import threading
-import time
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -51,8 +48,6 @@ FIRST_ACCESS_PATH = OUTPUT / "first_access.json"
 NDA_PATH = OUTPUT / "nda.json"
 WAITING_PATH = OUTPUT / "waiting_inquiry.json"
 RATINGS_PATH = OUTPUT / "ratings.json"
-NOTES_PATH = OUTPUT / "listing_notes.json"
-METRICS_FILES = ("mertices.txt", "metrices.txt", "metrices.txt.txt")
 FILTERS_PATH = OUTPUT / "filters.txt"
 SAVED_FILTERS = OUTPUT / "saved-filters"
 MAX_BODY = 200_000
@@ -206,189 +201,40 @@ def load_waiting() -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-def _stored_rating(value) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    if 1 <= value <= 5:
-        return value
-    return None
-
-
-def _stored_ai(value) -> int | float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    number = round(float(value), 2)
-    if number != number or number < 0 or number > 100:
-        return None
-    if number == int(number):
-        return int(number)
-    return number
-
-
-def _record_parts(value) -> tuple[int | None, int | float | None]:
-    """Accept a legacy 1–5 int or {rating, ai_score} without dropping either."""
-    if isinstance(value, dict):
-        return _stored_rating(value.get("rating")), _stored_ai(value.get("ai_score"))
-    return _stored_rating(value), None
-
-
-def load_rating_records() -> dict[str, dict]:
+def load_ratings() -> dict[str, int]:
+    """Saved 1–5 scores keyed by listing id. Missing file means nothing is rated."""
     data = read_json(RATINGS_PATH, {})
     if not isinstance(data, dict):
         return {}
-    records: dict[str, dict] = {}
+    ratings: dict[str, int] = {}
     for key, value in data.items():
         number = str(key).strip()
-        if not number.isdigit():
+        if not number.isdigit() or isinstance(value, bool) or not isinstance(value, int):
             continue
-        rating, ai_score = _record_parts(value)
-        if rating is None and ai_score is None:
-            continue
-        records[number] = {"rating": rating, "ai_score": ai_score}
-    return records
+        if 1 <= value <= 5:
+            ratings[number] = value
+    return ratings
 
 
-def load_ratings() -> dict[str, int]:
-    """Saved 1–5 scores keyed by listing id. Missing file means nothing is rated."""
-    return {
-        number: entry["rating"]
-        for number, entry in load_rating_records().items()
-        if entry.get("rating") is not None
-    }
-
-
-def load_ai_scores() -> dict[str, int | float]:
-    """Decimal AI scores keyed by listing id. Empty means the box is blank."""
-    return {
-        number: entry["ai_score"]
-        for number, entry in load_rating_records().items()
-        if entry.get("ai_score") is not None
-    }
-
-
-def clean_ai_score(value) -> int | float | None:
-    """Validate a typed AI score. None and blank clear it."""
-    if value is None:
-        return None
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return None
-        if text.endswith(".") and text[:-1].isdigit():
-            text = text[:-1]
-        if not re.fullmatch(r"\d{1,3}(\.\d{1,2})?", text):
-            raise ValueError("AI score must be a decimal number like 3.5, or blank to clear")
-        value = float(text)
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError("AI score must be a decimal number like 3.5, or blank to clear")
-    number = round(float(value), 2)
-    if number != number or number < 0 or number > 100:
-        raise ValueError("AI score must be a decimal number like 3.5, or blank to clear")
-    if number == int(number):
-        return int(number)
-    return number
-
-
-def _note_text(value, limit: int) -> str:
-    if not isinstance(value, str):
-        return ""
-    return value.strip()[:limit]
-
-
-def load_listing_notes() -> dict[str, dict]:
-    data = read_json(NOTES_PATH, {})
-    if not isinstance(data, dict):
-        return {}
-    notes: dict[str, dict] = {}
-    for key, value in data.items():
-        number = str(key).strip()
-        if not number.isdigit() or not isinstance(value, dict):
-            continue
-        notes[number] = {
-            "amazon": _note_text(value.get("amazon"), 2000),
-            "shopify": _note_text(value.get("shopify"), 2000),
-            "social": _note_text(value.get("social"), 2000),
-            "comments": _note_text(value.get("comments"), 8000),
-        }
-    return notes
-
-
-def listing_exists(number: str) -> bool:
-    if number in known_listings():
-        return True
-    return any(item.get("listing_id") == number for item in load_deleted())
-
-
-def save_listing_notes(number: str, payload: dict) -> None:
-    if not listing_exists(number):
-        raise KeyError(number)
-    notes = load_listing_notes()
-    notes[number] = {
-        "amazon": _note_text(payload.get("amazon"), 2000),
-        "shopify": _note_text(payload.get("shopify"), 2000),
-        "social": _note_text(payload.get("social"), 2000),
-        "comments": _note_text(payload.get("comments"), 8000),
-    }
-    write_json(NOTES_PATH, notes)
-
-
-def metrics_text() -> str:
-    """Load the metrics prompt. The newest file wins so a fresh edit is not shadowed."""
-    found = [ROOT / name for name in METRICS_FILES if (ROOT / name).is_file()]
-    if not found:
-        return ""
-    newest = max(found, key=lambda path: path.stat().st_mtime)
-    return newest.read_text(encoding="utf-8").strip()
-
-
-def write_rating_records(records: dict[str, dict]) -> None:
-    ordered: dict[str, int | dict] = {}
-    for number in sorted(records, key=lambda item: int(item)):
-        entry = records[number]
-        rating = entry.get("rating")
-        ai_score = entry.get("ai_score")
-        if rating is None and ai_score is None:
-            continue
-        if ai_score is None:
-            ordered[number] = rating
-            continue
-        stored: dict[str, int | float] = {}
-        if rating is not None:
-            stored["rating"] = rating
-        stored["ai_score"] = int(ai_score) if float(ai_score) == int(ai_score) else ai_score
-        ordered[number] = stored
+def write_ratings(ratings: dict[str, int]) -> None:
+    ordered = dict(sorted(ratings.items(), key=lambda item: int(item[0])))
     write_json(RATINGS_PATH, ordered)
 
 
-def _put_score(records: dict[str, dict], number: str, rating, ai_score) -> None:
-    if rating is None and ai_score is None:
-        records.pop(number, None)
-        return
-    records[number] = {"rating": rating, "ai_score": ai_score}
-
-
 def set_rating(number: str, rating: int | None) -> None:
-    """Store or clear a 1–5 score. Unknown ids are ignored. AI score is left as-is."""
+    """Store or clear a score. Unknown ids are ignored so no listing is created."""
     if number not in known_listings():
         return
-    records = load_rating_records()
-    entry = records.get(number, {"rating": None, "ai_score": None})
-    if entry.get("rating") == rating:
+    ratings = load_ratings()
+    if rating is None:
+        if number not in ratings:
+            return
+        del ratings[number]
+    elif ratings.get(number) == rating:
         return
-    _put_score(records, number, rating, entry.get("ai_score"))
-    write_rating_records(records)
-
-
-def set_ai_score(number: str, score: int | float | None) -> None:
-    """Store or clear the decimal AI score. The 1–5 rating is left as-is."""
-    if number not in known_listings():
-        return
-    records = load_rating_records()
-    entry = records.get(number, {"rating": None, "ai_score": None})
-    if entry.get("ai_score") == score:
-        return
-    _put_score(records, number, entry.get("rating"), score)
-    write_rating_records(records)
+    else:
+        ratings[number] = rating
+    write_ratings(ratings)
 
 
 def drop_waiting(number: str) -> None:
@@ -593,9 +439,6 @@ def state() -> dict:
         "nda": load_nda(),
         "waiting_inquiry": load_waiting(),
         "ratings": load_ratings(),
-        "ai_scores": load_ai_scores(),
-        "listing_notes": load_listing_notes(),
-        "metrics": metrics_text(),
         "filters": filters_payload(),
         "saved_filters": list_saved_filters(),
     }
@@ -702,73 +545,6 @@ def restore_listing(number: str) -> None:
     write_businesses(businesses)
 
 
-def listening_pids(port: int) -> list[int]:
-    """Process ids listening on this TCP port, excluding the current process."""
-    if sys.platform == "win32":
-        result = subprocess.run(
-            ["netstat", "-ano", "-p", "tcp"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        output = result.stdout
-    else:
-        result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        output = result.stdout
-        found: list[int] = []
-        for line in output.splitlines():
-            if not line.strip().isdigit():
-                continue
-            pid = int(line.strip())
-            if pid > 0 and pid != os.getpid() and pid not in found:
-                found.append(pid)
-        return found
-
-    found = []
-    for line in output.splitlines():
-        if "LISTENING" not in line.upper():
-            continue
-        parts = line.split()
-        if len(parts) < 5:
-            continue
-        _host, separator, listed = parts[1].rpartition(":")
-        if not separator or listed != str(port):
-            continue
-        if not parts[-1].isdigit():
-            continue
-        pid = int(parts[-1])
-        if pid > 0 and pid != os.getpid() and pid not in found:
-            found.append(pid)
-    return found
-
-
-def free_port(port: int) -> list[int]:
-    """Stop whatever is listening on port so this server can bind it."""
-    pids = listening_pids(port)
-    for pid in pids:
-        if sys.platform == "win32":
-            subprocess.run(
-                ["taskkill", "/F", "/PID", str(pid)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        else:
-            os.kill(pid, 15)
-    if not pids:
-        return []
-    for _ in range(25):
-        if not listening_pids(port):
-            return pids
-        time.sleep(0.2)
-    return pids
-
-
 class Server(ThreadingHTTPServer):
     allow_reuse_address = False
 
@@ -799,13 +575,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path == "/api/shutdown":
-            length_header = self.headers.get("Content-Length", "0")
-            if length_header.isdigit():
-                self.rfile.read(int(length_header))
-            self._send_json({"ok": True})
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
-            return
         if path == "/api/run":
             self._run()
             return
@@ -820,9 +589,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/rate":
             self._rate()
-            return
-        if path == "/api/listing-notes":
-            self._listing_notes()
             return
         actions = {
             "/api/delete": delete_listing,
@@ -869,35 +635,15 @@ class Handler(BaseHTTPRequestHandler):
             number = str(payload.get("listing_id", "")).strip()
             if not number.isdigit():
                 raise ValueError("listing_id must be the Flippa listing number")
-            has_rating = "rating" in payload
-            has_ai = "ai_score" in payload
-            if not has_rating and not has_ai:
+            if "rating" not in payload:
                 raise ValueError("rating must be a whole number from 1 to 5, or null to clear")
-            rating = payload.get("rating") if has_rating else None
-            if has_rating and rating is not None and (
-                isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5
-            ):
+            rating = payload.get("rating")
+            if rating is None:
+                set_rating(number, None)
+            elif isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
                 raise ValueError("rating must be a whole number from 1 to 5, or null to clear")
-            ai_score = clean_ai_score(payload.get("ai_score")) if has_ai else None
-            if has_rating:
+            else:
                 set_rating(number, rating)
-            if has_ai:
-                set_ai_score(number, ai_score)
-        except (ValueError, json.JSONDecodeError) as error:
-            self._send_json({"error": str(error)}, status=400)
-            return
-        self._send_json(state())
-
-    def _listing_notes(self) -> None:
-        try:
-            payload = self._read_json()
-            number = str(payload.get("listing_id", "")).strip()
-            if not number.isdigit():
-                raise ValueError("listing_id must be the Flippa listing number")
-            save_listing_notes(number, payload)
-        except KeyError:
-            self._send_json({"error": "listing not found"}, status=404)
-            return
         except (ValueError, json.JSONDecodeError) as error:
             self._send_json({"error": str(error)}, status=400)
             return
@@ -1036,37 +782,22 @@ def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     SAVED_FILTERS.mkdir(parents=True, exist_ok=True)
     url, host, port = LISTEN_URL, LISTEN_HOST, LISTEN_PORT
-    stopped = free_port(port)
-    if stopped:
-        print(
-            f"Freed port {port} by stopping process {', '.join(str(pid) for pid in stopped)}.",
-            flush=True,
-        )
-    server = None
-    last_error: OSError | None = None
-    for _ in range(25):
-        try:
-            server = Server((host, port), Handler)
-            break
-        except OSError as error:
-            last_error = error
-            winerror = getattr(error, "winerror", None)
-            busy = error.errno in {48, 98, 10048} or winerror == 10048
-            if not busy:
-                raise
-            time.sleep(0.2)
-    if server is None:
-        print(f"Port {port} is still in use.", flush=True)
-        print(f"Could not listen on {url}.", flush=True)
-        if last_error is not None:
-            print(last_error, flush=True)
-        sys.exit(1)
+    try:
+        server = Server((host, port), Handler)
+    except OSError as error:
+        winerror = getattr(error, "winerror", None)
+        if error.errno in {48, 98, 10048} or winerror == 10048:
+            print(f"Port {port} is already in use.", flush=True)
+            print(f"Another program is listening on {url}.", flush=True)
+            print("This server will not close that program.", flush=True)
+            print("Free the port, then start flippa-scraper again.", flush=True)
+            sys.exit(1)
+        raise
     print(f"Open {url}", flush=True)
     try:
         server.serve_forever()
-        print("Stopped.", flush=True)
     except KeyboardInterrupt:
-        print("\nStopped.", flush=True)
+        print("\nStopped.")
     finally:
         server.server_close()
 

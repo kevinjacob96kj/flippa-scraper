@@ -2,7 +2,7 @@ Keyword                        none
 Managed by                     none
 Price minimum                  $100,000
 Price maximum                  $250,000
-Category type                  Amazon Fba
+Category type                  none
 Country                        United States
 Business age minimum           2 years
 Business age maximum           none
