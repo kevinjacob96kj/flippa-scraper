@@ -19,7 +19,7 @@ call :read_url
 if errorlevel 1 goto :bad_url
 
 call :port_open
-if "%PORT_OPEN%"=="1" goto :port_busy
+if "%PORT_OPEN%"=="1" echo Port %BIND_PORT% is in use. Closing it, then starting the filter page.
 
 echo Starting the filter page at %URL%
 echo A headless scrape, without this page, is: python scrape.py
@@ -37,16 +37,6 @@ if defined SERVER_PID if "%PID_ALIVE%"=="0" goto :start_failed
 if %TRIES% GEQ 20 goto :start_failed
 timeout /t 1 /nobreak >nul
 goto :poll
-
-:port_busy
-echo Port %BIND_PORT% is already in use.
-echo Something is already listening on %URL%.
-echo This window will not start another server and will not close that program.
-echo If that program is this filter page, use the browser window that is already open.
-echo Otherwise, free port %BIND_PORT% and run this again.
-echo.
-pause
-exit /b 1
 
 :bad_url
 echo.

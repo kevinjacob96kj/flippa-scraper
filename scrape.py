@@ -33,6 +33,8 @@ NONE = "none"
 PUBLIC_FIELDS = [
     "name",
     "price_usd",
+    "inventory_usd",
+    "inventory_kind",
     "location",
     "type",
     "monthly_profit_usd",
@@ -153,6 +155,31 @@ STRIKETHROUGH_RE = re.compile(
     r'<span class="[^"]*line-through[^"]*">[\s\S]*?</span>',
 )
 PRICE_RE = re.compile(r"USD\s*\$([0-9][0-9,]*)")
+INVENTORY_RE = re.compile(
+    r"(Includes|Excludes)(?:\s|<[^>]*>)*USD\s*\$([0-9][0-9,]*)(?:\s|<[^>]*>)*of(?:\s|<[^>]*>)*inventory",
+    re.IGNORECASE,
+)
+ASKING_BLOCK_RE = re.compile(r"Asking Price([\s\S]{0,1200})", re.IGNORECASE)
+LISTING_NAME_RE = re.compile(
+    r'<h5 class="tw-text-primary-700[^"]*">\s*([^<]+?)\s*</h5>\s*<div id="bid-box-price"',
+)
+LISTING_STAT_RE = {
+    "monthly_profit_usd": re.compile(
+        r"Monthly Profit\s*</span>\s*<div[^>]*>\s*<div>\s*USD\s*\$([0-9][0-9,]*)",
+        re.IGNORECASE,
+    ),
+    "profit_multiple": re.compile(
+        r"Profit Multiple\s*</span>\s*<div[^>]*>\s*<div>\s*([0-9]+(?:\.[0-9]+)?)x",
+        re.IGNORECASE,
+    ),
+    "age": re.compile(
+        r"Site Age\s*</span>\s*<div[^>]*>\s*<div>\s*([^<]+?)\s*</div>",
+        re.IGNORECASE,
+    ),
+}
+LISTING_LOCATION_RE = re.compile(
+    r'map-pin-outline[\s\S]{0,500}?<span class="tw-text-sm tw-text-oxford-900">([^<]+)</span>',
+)
 METRIC_RE = {
     "type": re.compile(r">Type</p>\s*<p[^>]*>\s*([^<]+)"),
     "profit": re.compile(r">Monthly Profit</p>\s*<p[^>]*>\s*([^<]+)"),
@@ -1060,6 +1087,66 @@ def fetch(url: str, timeout: float) -> str:
     raise RuntimeError(f"failed to fetch {url}: {last_error}")
 
 
+def parse_inventory(text: str) -> tuple[int | None, str]:
+    """Amount and whether the listing includes or excludes that inventory."""
+    match = INVENTORY_RE.search(text)
+    if not match:
+        return None, ""
+    return int(match.group(2).replace(",", "")), match.group(1).lower()
+
+
+def _whole_usd(raw: str) -> int:
+    return int(raw.replace(",", ""))
+
+
+def listing_snapshot(page_html: str) -> dict | None:
+    """Current price, profit, and inventory from a Flippa listing page.
+
+    Returns None when the page is not a readable listing. inventory_usd is None
+    when the listing does not say it includes or excludes inventory.
+    """
+    asking = ASKING_BLOCK_RE.search(page_html)
+    if asking is None:
+        return None
+    region = STRIKETHROUGH_RE.sub("", asking.group(1))
+    price_region = re.split(r"Includes|Excludes|<hr", region, maxsplit=1, flags=re.IGNORECASE)[0]
+    prices = PRICE_RE.findall(price_region)
+    if not prices:
+        return None
+    inventory_usd, inventory_kind = parse_inventory(page_html)
+    fresh: dict = {
+        "price_usd": _whole_usd(prices[-1]),
+        "inventory_usd": inventory_usd,
+        "inventory_kind": inventory_kind,
+    }
+    name = LISTING_NAME_RE.search(page_html)
+    if name:
+        title = html.unescape(name.group(1)).strip()
+        if title:
+            fresh["name"] = title
+    profit = LISTING_STAT_RE["monthly_profit_usd"].search(page_html)
+    if profit:
+        fresh["monthly_profit_usd"] = _whole_usd(profit.group(1))
+    multiple = LISTING_STAT_RE["profit_multiple"].search(page_html)
+    if multiple:
+        fresh["profit_multiple"] = float(multiple.group(1))
+    age = LISTING_STAT_RE["age"].search(page_html)
+    if age:
+        text = " ".join(html.unescape(age.group(1)).split())
+        if text:
+            fresh["age"] = text
+    if name:
+        window = page_html[name.start() : name.start() + 30000]
+        location = LISTING_LOCATION_RE.search(window)
+    else:
+        location = None
+    if location:
+        place = html.unescape(location.group(1)).strip()
+        if place:
+            fresh["location"] = place
+    return fresh
+
+
 def parse_price(block: str) -> int | None:
     label = SALE_LABEL_RE.search(block)
     region = block[label.end() :] if label else block
@@ -1120,11 +1207,15 @@ def parse_listings(page_html: str) -> list[dict]:
         )
         badges = BADGE_RE.findall(block)
         sale_label = SALE_LABEL_RE.search(block)
+        price = parse_price(block)
+        inventory_usd, inventory_kind = parse_inventory(block)
         listings.append(
             {
                 "listing_id": listing_id,
                 "name": name,
-                "price_usd": parse_price(block),
+                "price_usd": price,
+                "inventory_usd": inventory_usd,
+                "inventory_kind": inventory_kind,
                 "location": location,
                 "type": metric_text(block, "type"),
                 "monthly_profit_usd": parse_money(metric_text(block, "profit")),

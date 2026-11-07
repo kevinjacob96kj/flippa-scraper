@@ -12,19 +12,21 @@
     "url": "https://flippa.com/12005392"
   },
   {
-    "name": "Ecommerce | Business",
-    "price_usd": 105000,
+    "name": "Ecommerce Store | Business",
+    "price_usd": 150000,
     "location": "WY, United States",
     "type": "Ecommerce",
-    "monthly_profit_usd": 3710,
-    "profit_multiple": 3.7,
+    "monthly_profit_usd": 3712,
+    "profit_multiple": 3.4,
     "age": "6 years",
     "verifications": "Shopify",
     "listing_id": "14375055",
-    "url": "https://flippa.com/14375055"
+    "url": "https://flippa.com/14375055",
+    "inventory_usd": 5000,
+    "inventory_kind": "includes"
   },
   {
-    "name": "Ecommerce | Food and Drink",
+    "name": "Ecommerce Store | Food and Drink",
     "price_usd": 115000,
     "location": "WY, United States",
     "type": "Ecommerce",
@@ -33,7 +35,9 @@
     "age": "4 years",
     "verifications": "WooCommerce",
     "listing_id": "12282373",
-    "url": "https://flippa.com/12282373"
+    "url": "https://flippa.com/12282373",
+    "inventory_usd": null,
+    "inventory_kind": ""
   },
   {
     "name": "Service | Education",

@@ -14,10 +14,15 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
+import signal
 import socket
+import subprocess
 import sys
 import threading
+import time
+import urllib.error
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -29,8 +34,10 @@ from scrape import (
     PUBLIC_FIELDS,
     FilterError,
     excluded_listing_ids,
+    fetch,
     filter_form,
     filter_options,
+    listing_snapshot,
     read_filters,
     scrape,
     settings_from_form,
@@ -48,10 +55,13 @@ FIRST_ACCESS_PATH = OUTPUT / "first_access.json"
 NDA_PATH = OUTPUT / "nda.json"
 WAITING_PATH = OUTPUT / "waiting_inquiry.json"
 RATINGS_PATH = OUTPUT / "ratings.json"
+NOTES_PATH = OUTPUT / "listing_notes.json"
+METRICS_FILES = ("mertices.txt", "metrices.txt", "metrices.txt.txt")
 FILTERS_PATH = OUTPUT / "filters.txt"
 SAVED_FILTERS = OUTPUT / "saved-filters"
 MAX_BODY = 200_000
 _run_lock = threading.Lock()
+_refresh_cancel = threading.Event()
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8765
 LISTEN_URL = f"http://{LISTEN_HOST}:{LISTEN_PORT}"
@@ -109,6 +119,12 @@ def deleted_note(item) -> str:
     return str(item.get("note") or "").strip()
 
 
+def _stored_money(value) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
 def deleted_disk(record: dict) -> dict:
     """Stored shape. An empty note is left off so older rows stay valid."""
     stored = {
@@ -119,6 +135,15 @@ def deleted_disk(record: dict) -> dict:
     note = str(record.get("note") or "").strip()
     if note:
         stored["note"] = note
+    price = _stored_money(record.get("price_usd"))
+    if price is not None:
+        stored["price_usd"] = price
+    inventory = _stored_money(record.get("inventory_usd"))
+    if inventory is not None:
+        stored["inventory_usd"] = inventory
+        kind = str(record.get("inventory_kind") or "").strip().lower()
+        if kind in {"includes", "excludes"}:
+            stored["inventory_kind"] = kind
     return stored
 
 
@@ -128,11 +153,17 @@ def deleted_record(item, known: dict[str, dict] | None = None) -> dict | None:
         name = str(item.get("name") or "").strip()
         url = str(item.get("url") or "").strip()
         note = deleted_note(item)
+        price = _stored_money(item.get("price_usd"))
+        inventory = _stored_money(item.get("inventory_usd"))
+        kind = str(item.get("inventory_kind") or "").strip().lower()
     else:
         number = str(item).strip()
         name = ""
         url = ""
         note = ""
+        price = None
+        inventory = None
+        kind = ""
     if not number:
         return None
     row = (known or {}).get(number)
@@ -141,18 +172,25 @@ def deleted_record(item, known: dict[str, dict] | None = None) -> dict | None:
             name = str(row.get("name") or "").strip()
         if not _FLIPPA_LISTING_URL.fullmatch(url):
             url = str(row.get("url") or "").strip()
-    return {
+    record = {
         "listing_id": number,
         "name": name,
         "url": flippa_listing_url(number, url),
         "note": note,
     }
+    if price is not None:
+        record["price_usd"] = price
+    if inventory is not None:
+        record["inventory_usd"] = inventory
+        if kind in {"includes", "excludes"}:
+            record["inventory_kind"] = kind
+    return record
 
 
 def _same_deleted_record(item, record: dict) -> bool:
     if not isinstance(item, dict):
         return False
-    if set(item) - {"listing_id", "name", "url", "note"}:
+    if set(item) - {"listing_id", "name", "url", "note", "price_usd", "inventory_usd", "inventory_kind"}:
         return False
     if not {"listing_id", "name", "url"} <= set(item):
         return False
@@ -161,6 +199,9 @@ def _same_deleted_record(item, record: dict) -> bool:
         "name": str(item.get("name") or "").strip(),
         "url": str(item.get("url") or "").strip(),
         "note": deleted_note(item),
+        "price_usd": item.get("price_usd"),
+        "inventory_usd": item.get("inventory_usd"),
+        "inventory_kind": item.get("inventory_kind"),
     })
     return current == deleted_disk(record)
 
@@ -201,40 +242,189 @@ def load_waiting() -> list[dict]:
     return data if isinstance(data, list) else []
 
 
-def load_ratings() -> dict[str, int]:
-    """Saved 1–5 scores keyed by listing id. Missing file means nothing is rated."""
+def _stored_rating(value) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if 1 <= value <= 5:
+        return value
+    return None
+
+
+def _stored_ai(value) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = round(float(value), 2)
+    if number != number or number < 0 or number > 100:
+        return None
+    if number == int(number):
+        return int(number)
+    return number
+
+
+def _record_parts(value) -> tuple[int | None, int | float | None]:
+    """Accept a plain 1-5 int or {rating, ai_score} without dropping either."""
+    if isinstance(value, dict):
+        return _stored_rating(value.get("rating")), _stored_ai(value.get("ai_score"))
+    return _stored_rating(value), None
+
+
+def load_rating_records() -> dict[str, dict]:
     data = read_json(RATINGS_PATH, {})
     if not isinstance(data, dict):
         return {}
-    ratings: dict[str, int] = {}
+    records: dict[str, dict] = {}
     for key, value in data.items():
         number = str(key).strip()
-        if not number.isdigit() or isinstance(value, bool) or not isinstance(value, int):
+        if not number.isdigit():
             continue
-        if 1 <= value <= 5:
-            ratings[number] = value
-    return ratings
+        rating, ai_score = _record_parts(value)
+        if rating is None and ai_score is None:
+            continue
+        records[number] = {"rating": rating, "ai_score": ai_score}
+    return records
 
 
-def write_ratings(ratings: dict[str, int]) -> None:
-    ordered = dict(sorted(ratings.items(), key=lambda item: int(item[0])))
+def load_ratings() -> dict[str, int]:
+    """Saved 1-5 scores keyed by listing id. Missing file means nothing is rated."""
+    return {
+        number: entry["rating"]
+        for number, entry in load_rating_records().items()
+        if entry.get("rating") is not None
+    }
+
+
+def load_ai_scores() -> dict[str, int | float]:
+    """Decimal AI scores keyed by listing id. Empty means the box is blank."""
+    return {
+        number: entry["ai_score"]
+        for number, entry in load_rating_records().items()
+        if entry.get("ai_score") is not None
+    }
+
+
+def clean_ai_score(value) -> int | float | None:
+    """Validate a typed AI score. None and blank clear it."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith(".") and text[:-1].isdigit():
+            text = text[:-1]
+        if not re.fullmatch(r"\d{1,3}(\.\d{1,2})?", text):
+            raise ValueError("AI score must be a decimal number like 3.5, or blank to clear")
+        value = float(text)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("AI score must be a decimal number like 3.5, or blank to clear")
+    number = round(float(value), 2)
+    if number != number or number < 0 or number > 100:
+        raise ValueError("AI score must be a decimal number like 3.5, or blank to clear")
+    if number == int(number):
+        return int(number)
+    return number
+
+
+def _note_text(value, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:limit]
+
+
+def load_listing_notes() -> dict[str, dict]:
+    data = read_json(NOTES_PATH, {})
+    if not isinstance(data, dict):
+        return {}
+    notes: dict[str, dict] = {}
+    for key, value in data.items():
+        number = str(key).strip()
+        if not number.isdigit() or not isinstance(value, dict):
+            continue
+        notes[number] = {
+            "amazon": _note_text(value.get("amazon"), 2000),
+            "shopify": _note_text(value.get("shopify"), 2000),
+            "social": _note_text(value.get("social"), 2000),
+            "comments": _note_text(value.get("comments"), 8000),
+        }
+    return notes
+
+
+def listing_exists(number: str) -> bool:
+    if number in known_listings():
+        return True
+    return any(str(item.get("listing_id") or "").strip() == number for item in load_deleted())
+
+
+def save_listing_notes(number: str, payload: dict) -> None:
+    if not listing_exists(number):
+        raise KeyError(number)
+    notes = load_listing_notes()
+    notes[number] = {
+        "amazon": _note_text(payload.get("amazon"), 2000),
+        "shopify": _note_text(payload.get("shopify"), 2000),
+        "social": _note_text(payload.get("social"), 2000),
+        "comments": _note_text(payload.get("comments"), 8000),
+    }
+    write_json(NOTES_PATH, notes)
+
+
+def metrics_text() -> str:
+    """Load the metrics prompt. The newest file wins so a fresh edit is not shadowed."""
+    found = [ROOT / name for name in METRICS_FILES if (ROOT / name).is_file()]
+    if not found:
+        return ""
+    newest = max(found, key=lambda path: path.stat().st_mtime)
+    return newest.read_text(encoding="utf-8").strip()
+
+
+def write_rating_records(records: dict[str, dict]) -> None:
+    ordered: dict[str, int | dict] = {}
+    for number in sorted(records, key=lambda item: int(item)):
+        entry = records[number]
+        rating = entry.get("rating")
+        ai_score = entry.get("ai_score")
+        if rating is None and ai_score is None:
+            continue
+        if ai_score is None:
+            ordered[number] = rating
+            continue
+        stored: dict[str, int | float] = {}
+        if rating is not None:
+            stored["rating"] = rating
+        stored["ai_score"] = int(ai_score) if float(ai_score) == int(ai_score) else ai_score
+        ordered[number] = stored
     write_json(RATINGS_PATH, ordered)
 
 
+def _put_score(records: dict[str, dict], number: str, rating, ai_score) -> None:
+    if rating is None and ai_score is None:
+        records.pop(number, None)
+        return
+    records[number] = {"rating": rating, "ai_score": ai_score}
+
+
 def set_rating(number: str, rating: int | None) -> None:
-    """Store or clear a score. Unknown ids are ignored so no listing is created."""
+    """Store or clear a 1-5 score. Unknown ids are ignored. AI score is left as-is."""
     if number not in known_listings():
         return
-    ratings = load_ratings()
-    if rating is None:
-        if number not in ratings:
-            return
-        del ratings[number]
-    elif ratings.get(number) == rating:
+    records = load_rating_records()
+    entry = records.get(number, {"rating": None, "ai_score": None})
+    if entry.get("rating") == rating:
         return
-    else:
-        ratings[number] = rating
-    write_ratings(ratings)
+    _put_score(records, number, rating, entry.get("ai_score"))
+    write_rating_records(records)
+
+
+def set_ai_score(number: str, score: int | float | None) -> None:
+    """Store or clear the decimal AI score. The 1-5 rating is left as-is."""
+    if number not in known_listings():
+        return
+    records = load_rating_records()
+    entry = records.get(number, {"rating": None, "ai_score": None})
+    if entry.get("ai_score") == score:
+        return
+    _put_score(records, number, entry.get("rating"), score)
+    write_rating_records(records)
 
 
 def drop_waiting(number: str) -> None:
@@ -439,6 +629,9 @@ def state() -> dict:
         "nda": load_nda(),
         "waiting_inquiry": load_waiting(),
         "ratings": load_ratings(),
+        "ai_scores": load_ai_scores(),
+        "listing_notes": load_listing_notes(),
+        "metrics": metrics_text(),
         "filters": filters_payload(),
         "saved_filters": list_saved_filters(),
     }
@@ -545,6 +738,82 @@ def restore_listing(number: str) -> None:
     write_businesses(businesses)
 
 
+LIST_VIEWS = {
+    "businesses": (load_businesses, write_businesses),
+    "saved": (load_saved, lambda rows: write_json(SAVED_PATH, rows)),
+    "first_access": (load_first_access, lambda rows: write_json(FIRST_ACCESS_PATH, rows)),
+    "nda": (load_nda, lambda rows: write_json(NDA_PATH, rows)),
+    "waiting_inquiry": (load_waiting, lambda rows: write_json(WAITING_PATH, rows)),
+    "deleted": (load_deleted, write_deleted),
+}
+
+
+def apply_listing_snapshot(row: dict, fresh: dict) -> None:
+    """Copy the latest listing-page fields onto a stored row."""
+    for key in ("name", "price_usd", "monthly_profit_usd", "profit_multiple", "age"):
+        value = fresh.get(key)
+        if value not in (None, ""):
+            row[key] = value
+    row["inventory_usd"] = fresh.get("inventory_usd")
+    kind = str(fresh.get("inventory_kind") or "").strip().lower()
+    row["inventory_kind"] = kind if kind in {"includes", "excludes"} and row["inventory_usd"] else ""
+    location = str(fresh.get("location") or "").strip()
+    current = str(row.get("location") or "")
+    if location and ("," in location or "," not in current):
+        row["location"] = location
+
+
+def refresh_view(view: str, on_progress=None) -> tuple[int, int, bool]:
+    """Re-read each listing on one tab from its Flippa page.
+
+    The third value is true when a cancel request stopped the run early.
+    Listings already read are still saved.
+    """
+    if view not in LIST_VIEWS:
+        raise ValueError("Choose a list to refresh.")
+    load, save = LIST_VIEWS[view]
+    rows = load()
+    updated = 0
+    missed = 0
+    started = False
+    cancelled = False
+    total = len(rows)
+    if on_progress:
+        on_progress(0, total, "")
+    try:
+        for index, row in enumerate(rows, start=1):
+            if _refresh_cancel.is_set():
+                cancelled = True
+                break
+            number = listing_number(row)
+            name = str(row.get("name") or number)
+            if not number.isdigit():
+                missed += 1
+                if on_progress:
+                    on_progress(index, total, name)
+                continue
+            if started and _refresh_cancel.wait(DEFAULT_DELAY):
+                cancelled = True
+                break
+            started = True
+            url = flippa_listing_url(number, str(row.get("url") or ""))
+            try:
+                fresh = listing_snapshot(fetch(url, DEFAULT_TIMEOUT))
+            except (urllib.error.URLError, TimeoutError, OSError, RuntimeError):
+                fresh = None
+            if fresh is None:
+                missed += 1
+            else:
+                apply_listing_snapshot(row, fresh)
+                updated += 1
+            if on_progress:
+                on_progress(index, total, name)
+    finally:
+        if updated:
+            save(rows)
+    return updated, missed, cancelled
+
+
 class Server(ThreadingHTTPServer):
     allow_reuse_address = False
 
@@ -555,7 +824,14 @@ class Server(ThreadingHTTPServer):
         super().server_bind()
 
 
+class _ClientClosed(Exception):
+    """The browser closed the refresh response before it finished."""
+
+
 class Handler(BaseHTTPRequestHandler):
+    # Chunked progress needs HTTP/1.1. The default 1.0 response makes the browser abort.
+    protocol_version = "HTTP/1.1"
+
     def do_GET(self) -> None:
         path = urlparse(self.path).path
         if path == "/api/state":
@@ -589,6 +865,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/rate":
             self._rate()
+            return
+        if path == "/api/listing-notes":
+            self._listing_notes()
+            return
+        if path == "/api/refresh":
+            self._refresh()
+            return
+        if path == "/api/refresh-cancel":
+            self._cancel_refresh()
             return
         actions = {
             "/api/delete": delete_listing,
@@ -629,21 +914,112 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json(state())
 
+    def _chunk(self, payload: dict) -> None:
+        raw = (json.dumps(payload) + "\n").encode("utf-8")
+        try:
+            self.wfile.write(f"{len(raw):X}\r\n".encode("ascii"))
+            self.wfile.write(raw)
+            self.wfile.write(b"\r\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            self.close_connection = True
+            raise _ClientClosed from None
+
+    def _end_chunks(self) -> None:
+        try:
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            self.close_connection = True
+
+    def _refresh(self) -> None:
+        if not _run_lock.acquire(blocking=False):
+            self._send_json({"error": "A Flippa request is already running."}, status=409)
+            return
+        try:
+            _refresh_cancel.clear()
+            try:
+                payload = self._read_json()
+                view = str(payload.get("view") or "")
+                if view not in LIST_VIEWS:
+                    raise ValueError("Choose a list to refresh.")
+            except ValueError as error:
+                self._send_json({"error": str(error)}, status=400)
+                return
+            except json.JSONDecodeError:
+                self._send_json({"error": "expected an object"}, status=400)
+                return
+            self.close_connection = False
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            try:
+                def on_progress(done: int, total: int, name: str) -> None:
+                    self._chunk({"type": "progress", "done": done, "total": total, "name": name})
+
+                updated, missed, cancelled = refresh_view(view, on_progress)
+                body = state()
+                body["type"] = "result"
+                body["updated"] = updated
+                body["missed"] = missed
+                body["cancelled"] = cancelled
+                self._chunk(body)
+            except _ClientClosed:
+                return
+            except OSError as error:
+                try:
+                    self._chunk({"type": "error", "error": f"Could not save the refreshed listings: {error}"})
+                except _ClientClosed:
+                    return
+            self._end_chunks()
+        finally:
+            _run_lock.release()
+            _refresh_cancel.clear()
+
+    def _cancel_refresh(self) -> None:
+        length_header = self.headers.get("Content-Length", "0")
+        if length_header.isdigit() and int(length_header) > 0:
+            self.rfile.read(int(length_header))
+        _refresh_cancel.set()
+        self._send_json({"ok": True})
+
     def _rate(self) -> None:
         try:
             payload = self._read_json()
             number = str(payload.get("listing_id", "")).strip()
             if not number.isdigit():
                 raise ValueError("listing_id must be the Flippa listing number")
-            if "rating" not in payload:
+            has_rating = "rating" in payload
+            has_ai = "ai_score" in payload
+            if not has_rating and not has_ai:
                 raise ValueError("rating must be a whole number from 1 to 5, or null to clear")
-            rating = payload.get("rating")
-            if rating is None:
-                set_rating(number, None)
-            elif isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
+            rating = payload.get("rating") if has_rating else None
+            if has_rating and rating is not None and (
+                isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5
+            ):
                 raise ValueError("rating must be a whole number from 1 to 5, or null to clear")
-            else:
+            ai_score = clean_ai_score(payload.get("ai_score")) if has_ai else None
+            if has_rating:
                 set_rating(number, rating)
+            if has_ai:
+                set_ai_score(number, ai_score)
+        except (ValueError, json.JSONDecodeError) as error:
+            self._send_json({"error": str(error)}, status=400)
+            return
+        self._send_json(state())
+
+    def _listing_notes(self) -> None:
+        try:
+            payload = self._read_json()
+            number = str(payload.get("listing_id", "")).strip()
+            if not number.isdigit():
+                raise ValueError("listing_id must be the Flippa listing number")
+            save_listing_notes(number, payload)
+        except KeyError:
+            self._send_json({"error": "listing not found"}, status=404)
+            return
         except (ValueError, json.JSONDecodeError) as error:
             self._send_json({"error": str(error)}, status=400)
             return
@@ -778,19 +1154,69 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def listening_pids(port: int) -> list[int]:
+    """Process ids holding this local port.
+
+    netstat sometimes omits the socket while Windows still reports it as in
+    use, so the lookup goes through Get-NetTCPConnection. Only the local
+    port is matched, which is the program bound here, not a browser tab.
+    """
+    script = (
+        "$rows = @(Get-NetTCPConnection -LocalPort "
+        + str(int(port))
+        + " -ErrorAction SilentlyContinue | Where-Object { "
+        + "$_.LocalAddress -eq '127.0.0.1' -or $_.LocalAddress -eq '0.0.0.0' -or $_.LocalAddress -eq '::' }); "
+        + "if (-not $rows) { exit 0 }; "
+        + "($rows | Select-Object -ExpandProperty OwningProcess -Unique) -join ','"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    found: list[int] = []
+    for piece in result.stdout.replace("\n", ",").split(","):
+        piece = piece.strip()
+        if piece.isdigit():
+            found.append(int(piece))
+    return list(dict.fromkeys(found))
+
+
+def free_listen_port(port: int) -> list[int]:
+    """Force-close whatever is listening on this port. Returns the ids that were closed."""
+    protected = {0, 4, os.getpid()}
+    closed: list[int] = []
+    for pid in listening_pids(port):
+        if pid in protected:
+            continue
+        os.kill(pid, signal.SIGTERM)
+        closed.append(pid)
+    if not closed:
+        return []
+    for _ in range(25):
+        if not any(pid in listening_pids(port) for pid in closed):
+            return closed
+        time.sleep(0.2)
+    return closed
+
+
 def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
     SAVED_FILTERS.mkdir(parents=True, exist_ok=True)
     url, host, port = LISTEN_URL, LISTEN_HOST, LISTEN_PORT
+    closed = free_listen_port(port)
+    if closed:
+        print(f"Closed the program that was using port {port}.", flush=True)
     try:
         server = Server((host, port), Handler)
     except OSError as error:
         winerror = getattr(error, "winerror", None)
         if error.errno in {48, 98, 10048} or winerror == 10048:
-            print(f"Port {port} is already in use.", flush=True)
-            print(f"Another program is listening on {url}.", flush=True)
-            print("This server will not close that program.", flush=True)
-            print("Free the port, then start flippa-scraper again.", flush=True)
+            print(f"Port {port} is still in use.", flush=True)
+            print(f"Could not close the program listening on {url}.", flush=True)
             sys.exit(1)
         raise
     print(f"Open {url}", flush=True)

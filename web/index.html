@@ -243,6 +243,36 @@
     nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--green); font-weight: 700; }
     .review-help { margin: 0 0 14px; color: var(--muted); }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .refresh-progress-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .refresh-progress-row .refresh-progress { flex: 1; margin: 0; }
+    #cancel-refresh { flex: none; }
+    #refresh-progress { margin: 12px 0 0; }
+    #refresh-progress[hidden] { display: none; }
+    .refresh-progress {
+      height: 8px;
+      border-radius: 999px;
+      background: #e4e7ec;
+      overflow: hidden;
+    }
+    .refresh-progress-fill {
+      height: 100%;
+      width: 0;
+      background: var(--green);
+      border-radius: 999px;
+      transition: width 160ms linear;
+    }
+    .refresh-progress-label {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     .toolbar button, .actions button {
       border: 1px solid var(--line);
       background: white;
@@ -262,6 +292,8 @@
     .name { color: var(--ink); font-size: 16px; font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
     a.name:hover { color: var(--green-dark); }
     .price { font-size: 18px; font-weight: 750; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .price-line { display: flex; align-items: baseline; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+    .inventory { color: #1d4ed8; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; }
     .rating { display: flex; gap: 4px; }
     .rating button {
@@ -314,6 +346,7 @@
       padding: 12px 14px;
       font-variant-numeric: tabular-nums;
     }
+    .deleted-top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
     ul.deleted li:first-child { border-radius: 12px 12px 0 0; }
     ul.deleted li:last-child { border-bottom: 1px solid var(--line); border-radius: 0 0 12px 12px; }
     ul.deleted li:only-child { border-radius: 12px; border-bottom: 1px solid var(--line); }
@@ -346,6 +379,49 @@
     .note-dialog .hint { margin: 6px 0 12px; }
     .note-dialog textarea { min-height: 88px; resize: vertical; }
     .note-dialog .actions { justify-content: flex-end; }
+    .prompt-dialog { width: min(640px, 100%); }
+    .prompt-dialog textarea { min-height: 160px; }
+    .prompt-dialog .field { color: var(--ink); font-weight: 700; }
+    .prompt-dialog .field input,
+    .prompt-dialog .field textarea { color: var(--ink); font-weight: 400; }
+    .listing-notes {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .score-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+    }
+    .ai-score {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+    .ai-score input {
+      width: 52px;
+      height: 26px;
+      flex: none;
+      padding: 0 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
     @media (max-width: 960px) {
       .app { grid-template-columns: 1fr; }
       #filters { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -371,6 +447,15 @@
           <p class="view-count" id="view-count"></p>
         </div>
         <div class="toolbar" id="toolbar"></div>
+      </div>
+      <div id="refresh-progress" hidden>
+        <div class="refresh-progress-row">
+          <div class="refresh-progress" role="progressbar" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-label="Refresh progress">
+            <div class="refresh-progress-fill"></div>
+          </div>
+          <button type="button" class="delete" id="cancel-refresh" data-action="cancel-refresh">Cancel</button>
+        </div>
+        <p class="refresh-progress-label"></p>
       </div>
       <nav>
         <button type="button" data-view="businesses" aria-selected="true">To review</button>
@@ -398,15 +483,43 @@
       </div>
     </form>
   </div>
+  <div id="prompt-backdrop" class="note-backdrop" hidden>
+    <form id="prompt-dialog" class="note-dialog prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-title">
+      <h3 id="prompt-title">Add notes</h3>
+      <p class="hint">Save stores these on the listing. Generate prompt also copies a report request to the clipboard.</p>
+      <label class="field" for="note-amazon">Amazon link
+        <input id="note-amazon" type="text" maxlength="2000">
+      </label>
+      <label class="field" for="note-shopify">Custom / Shopify store link
+        <input id="note-shopify" type="text" maxlength="2000">
+      </label>
+      <label class="field" for="note-social">Instagram / Facebook link
+        <input id="note-social" type="text" maxlength="2000">
+      </label>
+      <label class="field" for="note-comments">Comments
+        <textarea id="note-comments" maxlength="8000" rows="8"></textarea>
+      </label>
+      <p class="hint" id="prompt-status" hidden></p>
+      <pre id="prompt-copy" hidden></pre>
+      <div class="actions">
+        <button type="button" id="prompt-cancel">Cancel</button>
+        <button type="button" id="prompt-generate">Generate prompt</button>
+        <button type="submit" id="prompt-save" class="save">Save</button>
+      </div>
+    </form>
+  </div>
   <noscript>This page needs JavaScript to load filters from the local server.</noscript>
   <script>
     const form = document.querySelector("#filters");
     const list = document.querySelector("#list");
     const error = document.querySelector("#error");
     let view = "businesses";
-    let data = { businesses: [], saved: [], deleted: [], first_access: [], nda: [], waiting_inquiry: [], ratings: {}, saved_filters: [] };
+    let data = { businesses: [], saved: [], deleted: [], first_access: [], nda: [], waiting_inquiry: [], ratings: {}, ai_scores: {}, listing_notes: {}, metrics: "", saved_filters: [] };
     let filtersReady = false;
     let running = false;
+    let refreshing = false;
+    let refreshProgress = null;
+    let cancelling = false;
     const REVIEW_LAST_KEY = "to-review-last-link";
 
     function lastReviewLinkId() {
@@ -473,6 +586,19 @@
       return "$" + amount.toLocaleString("en-US");
     }
 
+    function inventoryText(item) {
+      const amount = Number(item && item.inventory_usd);
+      if (!Number.isFinite(amount) || amount <= 0) return "";
+      const kind = String((item && item.inventory_kind) || "").toLowerCase() === "includes" ? "includes" : "excludes";
+      return kind + " " + money(amount);
+    }
+
+    function priceLine(item) {
+      const extra = inventoryText(item);
+      const note = extra ? `<span class="inventory">${escapeHtml(extra)}</span>` : "";
+      return `<div class="price-line"><div class="price">${money(item && item.price_usd)}</div>${note}</div>`;
+    }
+
     function moneyValue(amount) {
       if (amount === null || amount === undefined || amount === "") return "";
       return Number(amount).toLocaleString("en-US");
@@ -506,6 +632,9 @@
           name: String(item.name ?? "").trim(),
           url: String(item.url ?? "").trim(),
           note: String(item.note ?? "").trim(),
+          price_usd: item.price_usd,
+          inventory_usd: item.inventory_usd,
+          inventory_kind: item.inventory_kind,
         };
       }
       const id = String(item ?? "").trim();
@@ -767,22 +896,23 @@
     }
 
     function actionButtons(viewName, id) {
+      const notes = `<button type="button" data-action="notes" data-id="${id}">Add notes</button>`;
       const nda = `<button type="button" class="save" data-action="nda" data-id="${id}">Signed NDA</button>`;
       const waiting = `<button type="button" class="access" data-action="waiting-inquiry" data-id="${id}">Waiting inquiry</button>`;
       const remove = `<button type="button" class="delete" data-action="delete" data-id="${id}">Delete</button>`;
       if (viewName === "waiting_inquiry") {
-        return `<button type="button" class="access" data-action="first-access" data-id="${id}">First access</button><button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${nda}${remove}`;
+        return `${notes}<button type="button" class="access" data-action="first-access" data-id="${id}">First access</button><button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${nda}${remove}`;
       }
       if (viewName === "saved") {
-        return `<button type="button" class="save" data-action="restore" data-id="${id}">Back to review</button>${nda}${waiting}${remove}`;
+        return `${notes}<button type="button" class="save" data-action="restore" data-id="${id}">Back to review</button>${nda}${waiting}${remove}`;
       }
       if (viewName === "first_access") {
-        return `${nda}${waiting}${remove}`;
+        return `${notes}${nda}${waiting}${remove}`;
       }
       if (viewName === "nda") {
-        return `${waiting}${remove}`;
+        return `${notes}${waiting}${remove}`;
       }
-      return `<button type="button" class="access" data-action="first-access" data-id="${id}">First access</button><button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${nda}${waiting}${remove}`;
+      return `${notes}<button type="button" class="access" data-action="first-access" data-id="${id}">First access</button><button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${nda}${waiting}${remove}`;
     }
 
     function ratingControl(id) {
@@ -792,7 +922,8 @@
         const label = pressed ? `Clear rating ${score}` : `Rate ${score}`;
         return `<button type="button" data-action="rate" data-id="${id}" data-rating="${score}" aria-pressed="${pressed}" aria-label="${label}">${score}</button>`;
       }).join("");
-      return `<div class="rating" role="group" aria-label="Rating">${buttons}</div>`;
+      const ai = formatAiScore(storedAiScore(id));
+      return `<div class="score-stack"><div class="rating" role="group" aria-label="Rating">${buttons}</div><label class="ai-score">AI score<input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" maxlength="6" data-action="ai-score" data-id="${id}" value="${escapeHtml(ai)}"></label></div>`;
     }
 
     function card(item) {
@@ -810,11 +941,12 @@
       const waitText = view === "first_access" ? daysUntilViewLabel(item.view_on) : "";
       const wait = waitText ? `<p class="view-wait">${escapeHtml(waitText)}</p>` : "";
       const rating = safeId ? ratingControl(safeId) : "";
+      const savedNotes = safeId ? notesBlock(safeId) : "";
       const actions = safeId ? `<div class="actions">${actionButtons(view, safeId)}</div>` : "";
       const highlighted = view === "businesses" && safeId && safeId === lastReviewLinkId();
       const cardClass = highlighted ? "card reviewed-last" : "card";
       const idAttr = safeId ? ` data-id="${safeId}"` : "";
-      return `<article class="${cardClass}"${idAttr}>${`<div class="card-top">${title}<div class="card-side"><div class="price">${money(item.price_usd)}</div>${rating}</div></div>`}${link}${wait}<dl class="facts">${fact("Location", escapeHtml(item.location || "—"))}${fact("Type", escapeHtml(item.type || "—"))}${fact("Profit", money(item.monthly_profit_usd))}${fact("Multiple", multipleText(item.profit_multiple))}${fact("Age", escapeHtml(item.age || "—"))}${when}<div class="wide"><dt>Verifications</dt><dd class="badges">${badges(item.verifications)}</dd></div></dl>${actions}</article>`;
+      return `<article class="${cardClass}"${idAttr}>${`<div class="card-top">${title}<div class="card-side">${priceLine(item)}${rating}</div></div>`}${link}${wait}<dl class="facts">${fact("Location", escapeHtml(item.location || "—"))}${fact("Type", escapeHtml(item.type || "—"))}${fact("Profit", money(item.monthly_profit_usd))}${fact("Multiple", multipleText(item.profit_multiple))}${fact("Age", escapeHtml(item.age || "—"))}${when}<div class="wide"><dt>Verifications</dt><dd class="badges">${badges(item.verifications)}</dd></div></dl>${savedNotes}${actions}</article>`;
     }
 
     function render() {
@@ -838,7 +970,8 @@
       const deleteAll = view === "businesses"
         ? `<button type="button" class="delete" data-action="delete-all">Delete all</button>`
         : "";
-      document.querySelector("#toolbar").innerHTML = `<button type="button" data-action="copy-links">Copy all links</button>${deleteAll}`;
+      const refreshLabel = refreshing ? "Refreshing…" : "Refresh";
+      document.querySelector("#toolbar").innerHTML = `<button type="button" data-action="refresh-tab"${refreshing ? " disabled" : ""}>${refreshLabel}</button><button type="button" data-action="copy-links">Copy all links</button>${deleteAll}`;
 
       if (view === "deleted") {
         list.innerHTML = data.deleted.length
@@ -850,7 +983,12 @@
                 ? `<a class="name" href="${escapeHtml(href)}" target="_blank" rel="noopener">${label}</a>`
                 : `<span class="name">${label}</span>`;
               const note = record.note ? `<p class="deleted-note">${escapeHtml(record.note)}</p>` : "";
-              return `<li>${title}${note}</li>`;
+              const price = (record.price_usd || inventoryText(record)) ? priceLine(record) : "";
+              const id = record.listing_id;
+              const notesBtn = /^\d+$/.test(id)
+                ? `<div class="actions"><button type="button" data-action="notes" data-id="${id}">Add notes</button></div>${notesBlock(id)}`
+                : "";
+              return `<li><div class="deleted-top">${title}${price}</div>${note}${notesBtn}</li>`;
             }).join("")}</ul>`
           : `<p class="empty">No deleted listings yet.</p>`;
         return;
@@ -886,6 +1024,137 @@
       const label = button.textContent;
       button.textContent = `Copied ${links.length} links`;
       window.setTimeout(() => { button.textContent = label; }, 1500);
+    }
+
+    function rowsFor(viewName) {
+      if (viewName === "deleted") return data.deleted || [];
+      return {
+        businesses: data.businesses,
+        saved: data.saved,
+        first_access: data.first_access,
+        nda: data.nda || [],
+        waiting_inquiry: data.waiting_inquiry || [],
+      }[viewName] || [];
+    }
+
+    function showRefreshProgress() {
+      const box = document.querySelector("#refresh-progress");
+      if (!box) return;
+      if (!refreshing || !refreshProgress || !refreshProgress.total) {
+        box.hidden = true;
+        return;
+      }
+      const done = Number(refreshProgress.done) || 0;
+      const total = Number(refreshProgress.total) || 0;
+      const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+      const bar = box.querySelector(".refresh-progress");
+      bar.setAttribute("aria-valuemax", String(total));
+      bar.setAttribute("aria-valuenow", String(done));
+      box.querySelector(".refresh-progress-fill").style.width = pct + "%";
+      const name = refreshProgress.name ? " · " + refreshProgress.name : "";
+      box.querySelector(".refresh-progress-label").textContent = done + " of " + total + name;
+      box.hidden = false;
+    }
+
+    function finishRefresh(payload) {
+      const updated = Number(payload.updated || 0);
+      const missed = Number(payload.missed || 0);
+      data = payload;
+      if (payload.cancelled) {
+        if (updated && missed) setStatus(`Refresh cancelled. Updated ${updated} listings. ${missed} could not be read.`, false);
+        else if (updated) setStatus(`Refresh cancelled. Updated ${updated} listings.`, false);
+        else setStatus("Refresh cancelled.", false);
+        return;
+      }
+      if (!updated && !missed) setStatus("Nothing on this tab to refresh.", false);
+      else if (!updated) setStatus("Could not read those listings from Flippa.", true);
+      else if (missed) setStatus(`Updated ${updated} listings. ${missed} could not be read.`, false);
+      else setStatus(`Updated ${updated} listings.`, false);
+    }
+
+    async function readRefreshStream(response) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let result = null;
+      while (true) {
+        const step = await reader.read();
+        if (step.done) break;
+        buffer += decoder.decode(step.value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.type === "progress") {
+            refreshProgress = { done: event.done, total: event.total, name: event.name || "" };
+            showRefreshProgress();
+          } else if (event.type === "error") {
+            throw new Error(event.error || "Could not refresh this tab.");
+          } else if (event.type === "result") {
+            result = event;
+          }
+        }
+      }
+      if (!result) throw new Error("The local server returned an unexpected response.");
+      finishRefresh(result);
+    }
+
+    async function cancelRefresh() {
+      if (!refreshing || cancelling) return;
+      cancelling = true;
+      const button = document.querySelector("#cancel-refresh");
+      if (button) {
+        button.disabled = true;
+        button.textContent = "Cancelling…";
+      }
+      try {
+        await fetch("/api/refresh-cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+      } catch (requestError) {
+        setStatus("The page could not reach the local server.", true);
+      }
+    }
+
+    async function refreshTab() {
+      if (refreshing || running) return;
+      refreshing = true;
+      cancelling = false;
+      error.hidden = true;
+      const total = rowsFor(view).length;
+      refreshProgress = { done: 0, total, name: "" };
+      setStatus(total ? "Reading the latest Flippa pages for this tab…" : "", false);
+      render();
+      showRefreshProgress();
+      try {
+        const response = await fetch("/api/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ view }),
+        });
+        if (!response.ok) {
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch (parseError) {
+            payload = {};
+          }
+          setStatus(payload.error || "Could not refresh this tab.", true);
+          return;
+        }
+        await readRefreshStream(response);
+      } catch (requestError) {
+        setStatus(requestError.message || "The page could not reach the local server.", true);
+      } finally {
+        refreshing = false;
+        cancelling = false;
+        refreshProgress = null;
+        showRefreshProgress();
+        render();
+      }
     }
 
     async function act(action, listingId, extra) {
@@ -1157,11 +1426,23 @@
         copyLinks(button);
         return;
       }
+      if (button.dataset.action === "refresh-tab") {
+        refreshTab();
+        return;
+      }
+      if (button.dataset.action === "cancel-refresh") {
+        cancelRefresh();
+        return;
+      }
       if (button.dataset.action === "delete-all") {
         if (!data.businesses.length) return;
         const count = data.businesses.length;
         if (!window.confirm(`Delete all ${count} listings on To review? They will be added to the deleted list.`)) return;
         act("delete-all", "");
+        return;
+      }
+      if (button.dataset.action === "notes") {
+        openNotes(button.dataset.id);
         return;
       }
       if (button.dataset.action === "delete") {
@@ -1176,6 +1457,17 @@
         return;
       }
       act(button.dataset.action, button.dataset.id);
+    });
+    document.querySelector("main").addEventListener("focusout", (event) => {
+      const input = event.target;
+      if (!input.matches || !input.matches("input[data-action='ai-score']")) return;
+      persistAiScore(input.dataset.id, input.value);
+    });
+    document.querySelector("main").addEventListener("keydown", (event) => {
+      const input = event.target;
+      if (event.key !== "Enter" || !input.matches || !input.matches("input[data-action='ai-score']")) return;
+      event.preventDefault();
+      input.blur();
     });
 
     let pendingDeleteId = "";
@@ -1217,7 +1509,319 @@
       if (event.target.id === "note-backdrop") closeDeleteNote();
     });
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && pendingNotesId) {
+        closeNotes();
+        return;
+      }
       if (event.key === "Escape" && pendingDeleteId) closeDeleteNote();
+    });
+
+    let pendingNotesId = "";
+
+    function notesFor(id) {
+      const notes = (data.listing_notes || {})[id] || {};
+      return {
+        amazon: String(notes.amazon || ""),
+        shopify: String(notes.shopify || ""),
+        social: String(notes.social || ""),
+        comments: String(notes.comments || ""),
+      };
+    }
+
+    function notesBlock(id) {
+      const notes = notesFor(id);
+      const lines = [];
+      if (notes.amazon) lines.push("Amazon: " + notes.amazon);
+      if (notes.shopify) lines.push("Store: " + notes.shopify);
+      if (notes.social) lines.push("Social: " + notes.social);
+      if (notes.comments) lines.push(notes.comments);
+      if (!lines.length) return "";
+      return `<p class="listing-notes">${escapeHtml(lines.join("\n"))}</p>`;
+    }
+
+    function findListing(id) {
+      const pools = [data.businesses, data.saved, data.first_access, data.nda || [], data.waiting_inquiry || []];
+      for (const rows of pools) {
+        const row = (rows || []).find((item) => String(item.listing_id) === String(id));
+        if (row) return row;
+      }
+      const deleted = (data.deleted || []).map(deletedRecord).find((item) => item.listing_id === String(id));
+      if (deleted) return deleted;
+      return { listing_id: id, name: "", url: "https://flippa.com/" + id };
+    }
+
+    function flippaPromptLink(item) {
+      const url = String(item.url || "");
+      if (url.startsWith("https://flippa.com/")) return url;
+      return "https://flippa.com/" + item.listing_id;
+    }
+
+    function promptMoney(value) {
+      const text = money(value);
+      return text === "—" ? "" : text;
+    }
+
+    function promptMultiple(value) {
+      const text = multipleText(value);
+      return text === "—" ? "" : text;
+    }
+
+    function formatAiScore(value) {
+      if (value === null || value === undefined || value === "") return "";
+      const number = Number(value);
+      if (!Number.isFinite(number)) return "";
+      return String(number);
+    }
+
+    function storedAiScore(id) {
+      const value = data.ai_scores && data.ai_scores[id];
+      if (value === null || value === undefined || value === "") return null;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function rememberAiScore(id, value) {
+      if (!data.ai_scores || typeof data.ai_scores !== "object") data.ai_scores = {};
+      if (value === null) delete data.ai_scores[id];
+      else data.ai_scores[id] = value;
+    }
+
+    function parseAiScore(raw) {
+      const text = String(raw ?? "").trim();
+      if (!text) return { ok: true, value: null };
+      const cleaned = text.endsWith(".") && /^\d{1,3}\.$/.test(text) ? text.slice(0, -1) : text;
+      if (!/^\d{1,3}(\.\d{1,2})?$/.test(cleaned)) return { ok: false, value: null };
+      const value = Number(cleaned);
+      if (!Number.isFinite(value) || value > 100) return { ok: false, value: null };
+      return { ok: true, value };
+    }
+
+    async function persistAiScore(listingId, raw) {
+      const parsed = parseAiScore(raw);
+      if (!parsed.ok) {
+        error.hidden = false;
+        error.textContent = "AI score must be a decimal number like 3.5, or blank.";
+        render();
+        return false;
+      }
+      const previous = storedAiScore(listingId);
+      if (formatAiScore(previous) === formatAiScore(parsed.value)) return true;
+      rememberAiScore(listingId, parsed.value);
+      error.hidden = true;
+      try {
+        const response = await fetch("/api/rate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listing_id: listingId, ai_score: parsed.value }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Could not save that AI score.");
+        data = payload;
+        const active = document.activeElement;
+        if (!active || !active.matches || !active.matches("input[data-action='ai-score']")) render();
+        return true;
+      } catch (err) {
+        rememberAiScore(listingId, previous);
+        error.hidden = false;
+        error.textContent = err.message || "Could not save that AI score.";
+        render();
+        return false;
+      }
+    }
+
+    function aiScoreForPrompt(id) {
+      const input = document.querySelector(`input[data-action="ai-score"][data-id="${id}"]`);
+      if (input) {
+        const parsed = parseAiScore(input.value);
+        if (parsed.ok) return parsed.value === null ? "" : String(parsed.value);
+      }
+      return formatAiScore(storedAiScore(id));
+    }
+
+    function placeholderValue(raw, item, fields) {
+      const key = String(raw || "").toLowerCase().replace(/[_./-]+/g, " ").replace(/\s+/g, " ").trim();
+      const amazon = fields.amazon.trim();
+      const shopify = fields.shopify.trim();
+      const social = fields.social.trim();
+      const comments = fields.comments.trim();
+      const flippa = flippaPromptLink(item);
+      const ai = aiScoreForPrompt(item.listing_id);
+      if (key.includes("amazon")) return amazon;
+      if (key.includes("flippa") || key === "listing url" || key === "listing link" || key === "url") return flippa;
+      if (key.includes("insta") || key.includes("instagram") || key.includes("facebook") || key.includes("social")) return social;
+      if (key.includes("shopify") || key.includes("store") || key === "other link") return shopify;
+      if (key.includes("comment") || key === "notes") return comments;
+      if (key === "ai score" || key === "ai rating" || key === "aiscore" || key === "ai") return ai;
+      if (key === "price" || key === "asking price" || key === "price usd") return promptMoney(item.price_usd);
+      if (key.includes("profit multiple") || key === "multiple") return promptMultiple(item.profit_multiple);
+      if (key.includes("profit")) return promptMoney(item.monthly_profit_usd);
+      if (key === "name" || key === "business" || key === "business name" || key === "listing name") return String(item.name || "");
+      if (key === "location") return String(item.location || "");
+      if (key === "type" || key === "category") return String(item.type || "");
+      if (key === "age") return String(item.age || "");
+      if (key === "listing id" || key === "id") return String(item.listing_id || "");
+      if (key === "excludes includes" || key === "includes excludes" || (key.includes("excludes") && key.includes("includes"))) {
+        return inventoryKindLabel(item);
+      }
+      if (key.includes("inventory")) return promptMoney(item.inventory_usd);
+      return "";
+    }
+
+    function inventoryKindLabel(item) {
+      const amount = Number(item && item.inventory_usd);
+      if (!Number.isFinite(amount) || amount <= 0) return "";
+      return String((item && item.inventory_kind) || "").toLowerCase() === "includes" ? "Includes" : "Excludes";
+    }
+
+    function fillPlaceholders(template, item, fields) {
+      const filled = String(template || "").replace(/<([^<>\n]+)>/g, (_match, inner) => placeholderValue(inner, item, fields));
+      if (inventoryKindLabel(item)) return filled;
+      return filled.replace(/^[ \t]*Listing Price\s+Inventory Value of\s*$/gim, "").replace(/\n{3,}/g, "\n\n");
+    }
+
+    function metricsIsFullPrompt(text) {
+      return /what do you think about this business/i.test(text)
+        || /<\s*(amazon|flippa|insta|instagram|shopify|ai score)/i.test(text);
+    }
+
+    function insertComments(text, comments) {
+      const block = `Comments:\n${comments}\n\n`;
+      const match = /^[ \t]*Score based on the bellow metrices/im.exec(text);
+      if (!match) return `${text.replace(/\s*$/, "")}\n\n${block.trimEnd()}\n`;
+      const before = text.slice(0, match.index).replace(/\s*$/, "");
+      return `${before}\n\n${block}${text.slice(match.index)}`;
+    }
+
+    function buildPrompt(item, fields, metrics) {
+      const template = String(metrics || "");
+      const filled = fillPlaceholders(template, item, fields);
+      const comments = fields.comments.trim();
+      const hadCommentPlaceholder = /<[^<>\n]*comments?[^<>\n]*>/i.test(template);
+      if (metricsIsFullPrompt(template)) {
+        if (comments && !hadCommentPlaceholder) return insertComments(filled, comments);
+        return filled;
+      }
+      const commentBlock = comments ? `\nComments:\n${comments}\n` : "";
+      return `What do you think about this business:
+Starting with 30k downpayment and rest in sba loan with 11% interest rate. Give me a detailed and concise report based on:
+
+Amazon link: ${fields.amazon.trim()}
+
+Flippa Listing: ${flippaPromptLink(item)}
+
+Instagram link: ${fields.social.trim()}
+
+Other / Shopify link: ${fields.shopify.trim()}
+${commentBlock}
+Score based on the bellow metrices from 1-5: 
+${filled}`;
+    }
+
+    function openNotes(id) {
+      pendingNotesId = id;
+      const item = findListing(id);
+      document.querySelector("#prompt-title").textContent = item.name || ("Listing " + id);
+      const notes = notesFor(id);
+      document.querySelector("#note-amazon").value = notes.amazon;
+      document.querySelector("#note-shopify").value = notes.shopify;
+      document.querySelector("#note-social").value = notes.social;
+      document.querySelector("#note-comments").value = notes.comments;
+      const status = document.querySelector("#prompt-status");
+      status.hidden = true;
+      status.textContent = "";
+      document.querySelector("#prompt-copy").textContent = "";
+      document.querySelector("#prompt-backdrop").hidden = false;
+      document.querySelector("#note-amazon").focus();
+    }
+
+    function closeNotes() {
+      pendingNotesId = "";
+      document.querySelector("#prompt-backdrop").hidden = true;
+    }
+
+    async function copyPrompt(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (err) {
+        const area = document.createElement("textarea");
+        area.value = text;
+        document.body.appendChild(area);
+        area.select();
+        const copied = document.execCommand("copy");
+        area.remove();
+        if (!copied) throw err;
+      }
+    }
+
+    async function saveListingNotes(generate) {
+      const id = pendingNotesId;
+      if (!id) return;
+      const fields = {
+        amazon: document.querySelector("#note-amazon").value,
+        shopify: document.querySelector("#note-shopify").value,
+        social: document.querySelector("#note-social").value,
+        comments: document.querySelector("#note-comments").value,
+      };
+      const status = document.querySelector("#prompt-status");
+      const saveButton = document.querySelector("#prompt-save");
+      const generateButton = document.querySelector("#prompt-generate");
+      status.hidden = true;
+      saveButton.disabled = true;
+      generateButton.disabled = true;
+      try {
+        const scoreInput = document.querySelector(`input[data-action="ai-score"][data-id="${id}"]`);
+        if (scoreInput) {
+          const savedScore = await persistAiScore(id, scoreInput.value);
+          if (!savedScore) {
+            status.hidden = false;
+            status.textContent = "Enter a decimal AI score, or leave it blank.";
+            return;
+          }
+        }
+        const response = await fetch("/api/listing-notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listing_id: id, ...fields }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          status.hidden = false;
+          status.textContent = payload.error || "Could not save the notes.";
+          return;
+        }
+        data = payload;
+        render();
+        if (!generate) {
+          closeNotes();
+          return;
+        }
+        const prompt = buildPrompt(findListing(id), fields, String(data.metrics || "").trim());
+        document.querySelector("#prompt-copy").textContent = prompt;
+        await copyPrompt(prompt);
+        status.hidden = false;
+        status.textContent = data.metrics ? "Saved and copied the prompt." : "Saved. The metrics file was empty, and the prompt was copied.";
+      } catch (err) {
+        status.hidden = false;
+        status.textContent = generate
+          ? "The notes were saved, but the prompt could not be copied."
+          : "Could not save the notes.";
+      } finally {
+        saveButton.disabled = false;
+        generateButton.disabled = false;
+      }
+    }
+
+    document.querySelector("#prompt-dialog").addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveListingNotes(false);
+    });
+    document.querySelector("#prompt-generate").addEventListener("click", () => {
+      saveListingNotes(true);
+    });
+    document.querySelector("#prompt-cancel").addEventListener("click", closeNotes);
+    document.querySelector("#prompt-backdrop").addEventListener("click", (event) => {
+      if (event.target.id === "prompt-backdrop") closeNotes();
     });
     refresh().catch((loadError) => {
       form.innerHTML = `<p class="hint">${escapeHtml(loadError.message)}</p>`;
