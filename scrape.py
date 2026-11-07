@@ -1067,8 +1067,37 @@ def settings_from_form(form: dict) -> Settings:
     return Settings(lines)
 
 
-def fetch(url: str, timeout: float) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def fetch_bytes(url: str, timeout: float, cookie: str = "", limit: int = 40_000_000) -> tuple[bytes, str, str]:
+    """Download a response body, its content type, and content disposition.
+
+    Stops after limit bytes so one listing file cannot fill the disk.
+    """
+    headers = {"User-Agent": USER_AGENT}
+    if cookie:
+        headers["Cookie"] = cookie
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        content_type = response.headers.get("Content-Type", "")
+        disposition = response.headers.get("Content-Disposition", "")
+        chunks: list[bytes] = []
+        total = 0
+        while total < limit:
+            block = response.read(min(65536, limit - total))
+            if not block:
+                break
+            chunks.append(block)
+            total += len(block)
+        extra = response.read(1)
+        if extra:
+            raise ValueError("attachment is larger than 40 MB")
+        return b"".join(chunks), content_type, disposition
+
+
+def fetch(url: str, timeout: float, cookie: str = "") -> str:
+    headers = {"User-Agent": USER_AGENT}
+    if cookie:
+        headers["Cookie"] = cookie
+    request = urllib.request.Request(url, headers=headers)
     last_error: Exception | None = None
     for attempt in range(4):
         try:
@@ -1119,11 +1148,10 @@ def listing_snapshot(page_html: str) -> dict | None:
         "inventory_usd": inventory_usd,
         "inventory_kind": inventory_kind,
     }
+    headline = listing_headline(page_html)
     name = LISTING_NAME_RE.search(page_html)
-    if name:
-        title = html.unescape(name.group(1)).strip()
-        if title:
-            fresh["name"] = title
+    if headline:
+        fresh["name"] = headline
     profit = LISTING_STAT_RE["monthly_profit_usd"].search(page_html)
     if profit:
         fresh["monthly_profit_usd"] = _whole_usd(profit.group(1))
@@ -1145,6 +1173,161 @@ def listing_snapshot(page_html: str) -> dict | None:
         if place:
             fresh["location"] = place
     return fresh
+
+
+_META_DESCRIPTION_RE = re.compile(
+    r'<meta\s+name="description"\s+content="([^"]*)"',
+    re.IGNORECASE,
+)
+_LISTING_STAT_PAIR_RE = re.compile(
+    r'<span class="tw-text-sm tw-text-gray-500">\s*([^<]+?)\s*</span>\s*'
+    r'<div class="tw-text-lg tw-font-semibold">\s*'
+    r'(?:<div>|<a\b[^>]*>)\s*([^<]+?)\s*<',
+    re.IGNORECASE,
+)
+_COLLAPSE_RE = re.compile(r'<[^>]+id="(collapse-[a-z0-9_]+)"[^>]*>', re.IGNORECASE)
+_SKIP_SECTIONS = {"collapse-disclaimer", "collapse-first_access"}
+
+
+def _listing_line(text: str) -> str:
+    return " ".join(html.unescape(text).split())
+
+
+_TITLE_BLOCK_RE = re.compile(
+    r'<div class="tw-text-black tw-text-3xl tw-font-bold tw-font-mon tw-truncate">(.*?)</div>',
+    re.IGNORECASE | re.DOTALL,
+)
+_EXTERNAL_NAME_RE = re.compile(
+    r'<a\b[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_short_name(title: str) -> bool:
+    if not title or len(title) > 120:
+        return False
+    lowered = title.lower()
+    return lowered not in {"watch", "inquire now", "make offer", "sign up", "log in", "sign in"}
+
+
+def listing_display_name(title: str, listing_id: str) -> str:
+    """Highlighted listing title plus its Flippa id, such as Ecommerce Store | Business - 14375055."""
+    text = " ".join(str(title or "").split())
+    number = str(listing_id or "").strip()
+    if not text:
+        return ""
+    if number.isdigit():
+        suffix = f" - {number}"
+        if text.endswith(suffix):
+            return text
+        return f"{text}{suffix}"
+    return text
+
+
+def listing_headline(page_html: str) -> str:
+    """The large highlighted title on the listing page.
+
+    That is the brand or the category line, such as papelespresso.com or
+    Ecommerce Store | Business. The paragraph under it is a description.
+    """
+    generic_match = LISTING_NAME_RE.search(page_html)
+    generic = _listing_line(generic_match.group(1)) if generic_match else ""
+    main = page_html.find('id="main_content"')
+    region = page_html[main:] if main >= 0 else page_html
+    description = region.find("tw-text-lg tw-mb-5")
+    header = region[:description] if description > 0 else region[:2500]
+    block = _TITLE_BLOCK_RE.search(header)
+    if block:
+        inner = re.sub(r"<[^>]+>", " ", block.group(1))
+        title = _listing_line(inner)
+        if _is_short_name(title):
+            return title
+    for href, inner in _EXTERNAL_NAME_RE.findall(header):
+        host = (urllib.parse.urlparse(html.unescape(href)).hostname or "").lower()
+        if not host or host.endswith("flippa.com"):
+            continue
+        title = _listing_line(re.sub(r"<[^>]+>", " ", inner))
+        if _is_short_name(title):
+            return title
+    if _is_short_name(generic):
+        return generic
+    return ""
+
+
+def _section_plain(fragment: str) -> str:
+    without = re.sub(r"<script[\s\S]*?</script>", " ", fragment, flags=re.IGNORECASE)
+    without = re.sub(r"<style[\s\S]*?</style>", " ", without, flags=re.IGNORECASE)
+    without = re.sub(r"<br\s*/?>", "\n", without, flags=re.IGNORECASE)
+    without = re.sub(r"</(?:p|div|li|h[1-6]|tr)>", "\n", without, flags=re.IGNORECASE)
+    without = re.sub(r"<[^>]+>", " ", without)
+    kept = [" ".join(html.unescape(line).split()) for line in without.splitlines()]
+    return "\n".join(line for line in kept if line)[:4000]
+
+
+_ATTACHMENT_RE = re.compile(
+    r'OnboardingAttachments__attachment__tab(?:\s+(?P<ext>[a-z0-9]+))?"[^>]*>\s*(?P<label>[^<]*?)\s*</div>\s*'
+    r'<a\b[^>]*href="(?P<path>/auctions/(?P<listing>\d+)/attachments/(?P<file>\d+))"'
+    r'[\s\S]{0,1200}?OnboardingAttachments__attachment__title">\s*<span>(?P<name>[^<]+)</span>',
+    re.IGNORECASE,
+)
+
+
+def listing_attachment_links(page_html: str, listing_id: str) -> list[dict]:
+    """Files shown in the listing's Attachments section."""
+    number = str(listing_id).strip()
+    found: list[dict] = []
+    for match in _ATTACHMENT_RE.finditer(page_html):
+        if match.group("listing") != number:
+            continue
+        ext = (match.group("ext") or match.group("label") or "").strip().lower()
+        found.append({
+            "path": match.group("path"),
+            "name": _listing_line(match.group("name")),
+            "ext": ext,
+        })
+    return found
+
+
+def listing_prompt_text(page_html: str) -> str:
+    """Summary and visible facts from a Flippa listing page, for the report prompt."""
+    lines: list[str] = []
+    meta = _META_DESCRIPTION_RE.search(page_html)
+    if meta:
+        summary = _listing_line(meta.group(1))
+        if summary:
+            lines.append(summary)
+    start = page_html.find('id="properties-summary"')
+    if start >= 0:
+        ends = [
+            pos
+            for pos in (
+                page_html.find('id="bid-box-price"', start),
+                page_html.find("Create your account", start),
+            )
+            if pos > start
+        ]
+        block = page_html[start : min(ends) if ends else start + 8000]
+        for label, value in _LISTING_STAT_PAIR_RE.findall(block):
+            name = _listing_line(label).rstrip(":")
+            amount = _listing_line(value)
+            if name and amount:
+                lines.append(f"{name}: {amount}")
+    for match in _COLLAPSE_RE.finditer(page_html):
+        section_id = match.group(1).lower()
+        if section_id in _SKIP_SECTIONS:
+            continue
+        body_start = match.end()
+        nxt = page_html.lower().find('id="collapse-', body_start)
+        body_end = nxt if nxt > body_start else body_start + 8000
+        raw = page_html[body_start:body_end]
+        if "Create your account to view" in raw:
+            continue
+        text = _section_plain(raw)
+        if len(text) < 40:
+            continue
+        title = section_id.removeprefix("collapse-").replace("_", " ").capitalize()
+        lines.append(f"{title}:\n{text}")
+    return "\n".join(lines).strip()[:15000]
 
 
 def parse_price(block: str) -> int | None:
@@ -1212,7 +1395,7 @@ def parse_listings(page_html: str) -> list[dict]:
         listings.append(
             {
                 "listing_id": listing_id,
-                "name": name,
+                "name": listing_display_name(name, listing_id),
                 "price_usd": price,
                 "inventory_usd": inventory_usd,
                 "inventory_kind": inventory_kind,

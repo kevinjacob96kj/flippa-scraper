@@ -1,6 +1,6 @@
 [
   {
-    "name": "FBA Storefront | Sports and Outdoor",
+    "name": "E9 Golf - Emergency Nine - 13049859",
     "price_usd": 95000,
     "location": "FL, United States",
     "type": "Amazon Store",
@@ -13,7 +13,7 @@
     "inventory_usd": 55000
   },
   {
-    "name": "FBA Storefront | Home and Garden",
+    "name": "Bilhuda LLC - 12886260",
     "price_usd": 146000,
     "location": "TX, United States",
     "type": "Amazon Store",
@@ -24,5 +24,19 @@
     "listing_id": "12886260",
     "url": "https://flippa.com/12886260",
     "inventory_usd": 17793
+  },
+  {
+    "name": "papelespresso.com - 12282373",
+    "price_usd": 115000,
+    "inventory_usd": null,
+    "inventory_kind": "",
+    "location": "WY, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 4450,
+    "profit_multiple": 2.2,
+    "age": "4 years",
+    "verifications": "WooCommerce",
+    "listing_id": "12282373",
+    "url": "https://flippa.com/12282373"
   }
 ]

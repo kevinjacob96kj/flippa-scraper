@@ -486,7 +486,7 @@
   <div id="prompt-backdrop" class="note-backdrop" hidden>
     <form id="prompt-dialog" class="note-dialog prompt-dialog" role="dialog" aria-modal="true" aria-labelledby="prompt-title">
       <h3 id="prompt-title">Add notes</h3>
-      <p class="hint">Save stores these on the listing. Generate prompt also copies a report request to the clipboard.</p>
+      <p class="hint">Save stores these on the listing. Generate prompt copies a report request, saves it with the listing attachments, and opens that folder.</p>
       <label class="field" for="note-amazon">Amazon link
         <input id="note-amazon" type="text" maxlength="2000">
       </label>
@@ -513,7 +513,31 @@
     const form = document.querySelector("#filters");
     const list = document.querySelector("#list");
     const error = document.querySelector("#error");
-    let view = "businesses";
+    const VIEW_KEY = "current-tab";
+    const VIEWS = new Set(["businesses", "first_access", "saved", "nda", "waiting_inquiry", "deleted"]);
+
+    function storedView() {
+      try {
+        const saved = localStorage.getItem(VIEW_KEY) || "";
+        return VIEWS.has(saved) ? saved : "businesses";
+      } catch (storageError) {
+        return "businesses";
+      }
+    }
+
+    function rememberView(next) {
+      view = VIEWS.has(next) ? next : "businesses";
+      try {
+        localStorage.setItem(VIEW_KEY, view);
+      } catch (storageError) {
+        return;
+      }
+    }
+
+    let view = storedView();
+    document.querySelectorAll("nav button").forEach((button) => {
+      button.setAttribute("aria-selected", String(button.dataset.view === view));
+    });
     let data = { businesses: [], saved: [], deleted: [], first_access: [], nda: [], waiting_inquiry: [], ratings: {}, ai_scores: {}, listing_notes: {}, metrics: "", saved_filters: [] };
     let filtersReady = false;
     let running = false;
@@ -910,7 +934,7 @@
         return `${notes}${nda}${waiting}${remove}`;
       }
       if (viewName === "nda") {
-        return `${notes}${waiting}${remove}`;
+        return `${notes}<button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${waiting}${remove}`;
       }
       return `${notes}<button type="button" class="access" data-action="first-access" data-id="${id}">First access</button><button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${nda}${waiting}${remove}`;
     }
@@ -926,9 +950,17 @@
       return `<div class="score-stack"><div class="rating" role="group" aria-label="Rating">${buttons}</div><label class="ai-score">AI score<input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" maxlength="6" data-action="ai-score" data-id="${id}" value="${escapeHtml(ai)}"></label></div>`;
     }
 
+    function listingName(item) {
+      const name = String((item && item.name) || "").trim();
+      const id = String((item && item.listing_id) || "").trim();
+      if (!name) return id ? `Listing ${id}` : "Untitled";
+      if (/^\d+$/.test(id) && !name.endsWith(` - ${id}`)) return `${name} - ${id}`;
+      return name;
+    }
+
     function card(item) {
       const href = listingHref(item);
-      const name = escapeHtml(item.name || "Untitled");
+      const name = escapeHtml(listingName(item));
       const title = href
         ? `<a class="name" href="${escapeHtml(href)}" target="_blank" rel="noopener">${name}</a>`
         : `<span class="name">${name}</span>`;
@@ -978,7 +1010,7 @@
           ? `<ul class="deleted">${data.deleted.map((item) => {
               const record = deletedRecord(item);
               const href = listingHref(record);
-              const label = escapeHtml(record.name || record.listing_id || "Listing");
+              const label = escapeHtml(listingName(record));
               const title = href
                 ? `<a class="name" href="${escapeHtml(href)}" target="_blank" rel="noopener">${label}</a>`
                 : `<span class="name">${label}</span>`;
@@ -1365,7 +1397,7 @@
           : "";
         setStatus(`Imported ${payload.imported} listings.${skipped}`, false);
         if (payload.filters && payload.filters.form) setSearchLink(payload.filters.form.search_url);
-        view = "businesses";
+        rememberView("businesses");
         render();
       } catch (requestError) {
         setStatus("The page could not reach the local server.", true);
@@ -1409,7 +1441,7 @@
     document.querySelector("nav").addEventListener("click", (event) => {
       const button = event.target.closest("button");
       if (!button) return;
-      view = button.dataset.view;
+      rememberView(button.dataset.view);
       error.hidden = true;
       render();
     });
@@ -1655,7 +1687,7 @@
       if (key === "price" || key === "asking price" || key === "price usd") return promptMoney(item.price_usd);
       if (key.includes("profit multiple") || key === "multiple") return promptMultiple(item.profit_multiple);
       if (key.includes("profit")) return promptMoney(item.monthly_profit_usd);
-      if (key === "name" || key === "business" || key === "business name" || key === "listing name") return String(item.name || "");
+      if (key === "name" || key === "business" || key === "business name" || key === "listing name") return listingName(item);
       if (key === "location") return String(item.location || "");
       if (key === "type" || key === "category") return String(item.type || "");
       if (key === "age") return String(item.age || "");
@@ -1692,14 +1724,42 @@
       return `${before}\n\n${block}${text.slice(match.index)}`;
     }
 
+    function cardListingText(item) {
+      const lines = [];
+      if (item && listingName(item) !== "Untitled") lines.push(listingName(item));
+      [
+        ["Location", item && item.location],
+        ["Type", item && item.type],
+        ["Monthly profit", promptMoney(item && item.monthly_profit_usd)],
+        ["Profit multiple", promptMultiple(item && item.profit_multiple)],
+        ["Age", item && item.age],
+        ["Verifications", item && item.verifications],
+      ].forEach(([label, value]) => {
+        const text = String(value || "").trim();
+        if (text) lines.push(`${label}: ${text}`);
+      });
+      return lines.join("\n");
+    }
+
+    function insertListing(text, listingText) {
+      const body = String(listingText || "").trim();
+      if (!body) return text;
+      const block = `<listing-content>\n${body}\n</listing-content>\n\n`;
+      const match = /^[ \t]*Score based on the bellow metrices/im.exec(text);
+      if (!match) return `${text.replace(/\s*$/, "")}\n\n${block.trimEnd()}\n`;
+      const before = text.slice(0, match.index).replace(/\s*$/, "");
+      return `${before}\n\n${block}${text.slice(match.index)}`;
+    }
+
     function buildPrompt(item, fields, metrics) {
       const template = String(metrics || "");
       const filled = fillPlaceholders(template, item, fields);
       const comments = fields.comments.trim();
       const hadCommentPlaceholder = /<[^<>\n]*comments?[^<>\n]*>/i.test(template);
       if (metricsIsFullPrompt(template)) {
-        if (comments && !hadCommentPlaceholder) return insertComments(filled, comments);
-        return filled;
+        const withListing = insertListing(filled, fields.listing);
+        if (comments && !hadCommentPlaceholder) return insertComments(withListing, comments);
+        return withListing;
       }
       const commentBlock = comments ? `\nComments:\n${comments}\n` : "";
       return `What do you think about this business:
@@ -1712,6 +1772,7 @@ Flippa Listing: ${flippaPromptLink(item)}
 Instagram link: ${fields.social.trim()}
 
 Other / Shopify link: ${fields.shopify.trim()}
+${String(fields.listing || "").trim() ? `\n<listing-content>\n${String(fields.listing).trim()}\n</listing-content>\n` : ""}
 ${commentBlock}
 Score based on the bellow metrices from 1-5: 
 ${filled}`;
@@ -1720,7 +1781,7 @@ ${filled}`;
     function openNotes(id) {
       pendingNotesId = id;
       const item = findListing(id);
-      document.querySelector("#prompt-title").textContent = item.name || ("Listing " + id);
+      document.querySelector("#prompt-title").textContent = listingName(item);
       const notes = notesFor(id);
       document.querySelector("#note-amazon").value = notes.amazon;
       document.querySelector("#note-shopify").value = notes.shopify;
@@ -1766,6 +1827,7 @@ ${filled}`;
       const status = document.querySelector("#prompt-status");
       const saveButton = document.querySelector("#prompt-save");
       const generateButton = document.querySelector("#prompt-generate");
+      let attachmentNote = "";
       status.hidden = true;
       saveButton.disabled = true;
       generateButton.disabled = true;
@@ -1796,16 +1858,62 @@ ${filled}`;
           closeNotes();
           return;
         }
-        const prompt = buildPrompt(findListing(id), fields, String(data.metrics || "").trim());
-        document.querySelector("#prompt-copy").textContent = prompt;
-        await copyPrompt(prompt);
+        const item = findListing(id);
+        let listingText = "";
+        let listingNote = "";
         status.hidden = false;
-        status.textContent = data.metrics ? "Saved and copied the prompt." : "Saved. The metrics file was empty, and the prompt was copied.";
+        status.textContent = "Reading the listing...";
+        try {
+          const listingResponse = await fetch("/api/listing-text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ listing_id: id }),
+          });
+          const listingPayload = await listingResponse.json();
+          if (listingResponse.ok) {
+            listingText = String(listingPayload.text || "");
+            attachmentNote = String(listingPayload.attachment_note || "");
+            if (!attachmentNote) attachmentNote = "This listing has no attachments.";
+          } else listingNote = listingPayload.error || "The listing page could not be read.";
+        } catch (readError) {
+          listingNote = "The listing page could not be read.";
+        }
+        const prompt = buildPrompt(
+          item,
+          { ...fields, listing: listingText || cardListingText(item) },
+          String(data.metrics || "").trim(),
+        );
+        document.querySelector("#prompt-copy").textContent = prompt;
+        let folderNote = "";
+        try {
+          const openResponse = await fetch("/api/open-listing-folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ listing_id: id, prompt }),
+          });
+          const openPayload = await openResponse.json();
+          folderNote = openResponse.ok
+            ? "Opened the listing folder."
+            : (openPayload.error || "The listing folder could not be opened.");
+        } catch (openError) {
+          folderNote = "The listing folder could not be opened.";
+        }
+        let copied = data.metrics
+          ? "Saved and copied the prompt."
+          : "Saved. The metrics file was empty, and the prompt was copied.";
+        try {
+          await copyPrompt(prompt);
+        } catch (copyError) {
+          copied = "The notes were saved, but the prompt could not be copied.";
+        }
+        const extra = [listingNote && !listingText ? `${listingNote} The saved card details were used.` : "", attachmentNote, folderNote]
+          .filter(Boolean)
+          .join(" ");
+        status.hidden = false;
+        status.textContent = extra ? `${copied} ${extra}` : copied;
       } catch (err) {
         status.hidden = false;
-        status.textContent = generate
-          ? "The notes were saved, but the prompt could not be copied."
-          : "Could not save the notes.";
+        status.textContent = "Could not save the notes.";
       } finally {
         saveButton.disabled = false;
         generateButton.disabled = false;

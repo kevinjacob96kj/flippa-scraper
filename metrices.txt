@@ -22,6 +22,10 @@ Listing Price: <Price>
 
 Listing Price <Excludes/Includes> Inventory Value of <Inventory Value>
 
+
+Below is the listing page content. take it witha a grain of salt as this is written by the seller: 
+<listing-content>
+
 Score based on the bellow metrices  from 1-5. If No available information for scoring then don't include it and show at the bottom the metrices dropped. And give me average of score. these are the metrices:
 
 * **Gross Profit & Gross Margin:** Total revenue minus the Cost of Goods Sold (COGS), representing the profit remaining after direct production expenses. A healthy gross margin leaves adequate room to absorb operational expenses, advertising, and net profit.

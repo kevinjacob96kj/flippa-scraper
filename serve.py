@@ -26,7 +26,7 @@ import urllib.error
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from scrape import (
     DEFAULT_DELAY,
@@ -35,8 +35,12 @@ from scrape import (
     FilterError,
     excluded_listing_ids,
     fetch,
+    fetch_bytes,
     filter_form,
     filter_options,
+    listing_attachment_links,
+    listing_display_name,
+    listing_prompt_text,
     listing_snapshot,
     read_filters,
     scrape,
@@ -59,6 +63,7 @@ NOTES_PATH = OUTPUT / "listing_notes.json"
 METRICS_FILES = ("mertices.txt", "metrices.txt", "metrices.txt.txt")
 FILTERS_PATH = OUTPUT / "filters.txt"
 SAVED_FILTERS = OUTPUT / "saved-filters"
+COOKIE_PATH = ROOT / "flippa-cookie.txt"
 MAX_BODY = 200_000
 _run_lock = threading.Lock()
 _refresh_cancel = threading.Event()
@@ -70,6 +75,128 @@ LISTEN_URL = f"http://{LISTEN_HOST}:{LISTEN_PORT}"
 def print_listen_target() -> None:
     """Print url|host|port for the launcher."""
     print(f"{LISTEN_URL}|{LISTEN_HOST}|{LISTEN_PORT}")
+
+
+def _cookie_text(path: Path) -> str:
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    if len(raw) > 20000:
+        return ""
+    for line in raw.splitlines():
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        if text.lower().startswith("cookie:"):
+            text = text.split(":", 1)[1].strip()
+        return " ".join(text.split())
+    return ""
+
+
+ATTACHMENTS = ROOT / "attachments"
+_FILE_EXT = {"pdf", "xlsx", "xls", "csv", "doc", "docx", "png", "jpg", "jpeg", "zip", "txt", "ppt", "pptx"}
+
+
+def _attachment_filename(name: str, ext: str, disposition: str) -> str:
+    header_name = ""
+    encoded = re.search(r"filename\*=UTF-8''([^;]+)", disposition, re.IGNORECASE)
+    quoted = re.search(r'filename="([^"]+)"', disposition, re.IGNORECASE)
+    if encoded:
+        header_name = unquote(encoded.group(1).strip())
+    elif quoted:
+        header_name = quoted.group(1).strip()
+    chosen = header_name or name or "attachment"
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", chosen).strip().strip(".")
+    cleaned = cleaned[:80] or "attachment"
+    suffix = ext.lower() if ext.lower() in _FILE_EXT else ""
+    if suffix and not cleaned.lower().endswith("." + suffix):
+        cleaned = f"{cleaned}.{suffix}"
+    return cleaned
+
+
+def save_listing_attachments(number: str, page_html: str) -> tuple[list[str], str]:
+    """Save the listing's attachment files under attachments/{listing id}/."""
+    links = listing_attachment_links(page_html, number)
+    if not links:
+        return [], ""
+    folder = ATTACHMENTS / number
+    folder.mkdir(parents=True, exist_ok=True)
+    saved: list[str] = []
+    used: set[str] = set()
+    downloaded = 0
+    kept = 0
+    failures = 0
+    for link in links:
+        filename = _attachment_filename(link["name"], link["ext"], "")
+        target = folder / filename
+        count = 2
+        while target.name.lower() in used:
+            target = folder / f"{Path(filename).stem}-{count}{Path(filename).suffix}"
+            count += 1
+        if target.is_file() and target.stat().st_size > 0:
+            used.add(target.name.lower())
+            saved.append(target.name)
+            kept += 1
+            continue
+        url = "https://flippa.com" + link["path"]
+        try:
+            body, content_type, disposition = fetch_bytes(url, DEFAULT_TIMEOUT, flippa_cookie())
+        except (urllib.error.URLError, ValueError, TimeoutError, OSError):
+            failures += 1
+            continue
+        if "text/html" in content_type.lower() or body[:15].lstrip().lower().startswith(b"<!doctype"):
+            failures += 1
+            continue
+        header_name = _attachment_filename(link["name"], link["ext"], disposition)
+        if header_name.lower() not in used:
+            target = folder / header_name
+        target.write_bytes(body)
+        used.add(target.name.lower())
+        saved.append(target.name)
+        downloaded += 1
+    parts: list[str] = []
+    if downloaded:
+        parts.append(f"Saved {downloaded} attachment{'s' if downloaded != 1 else ''}.")
+    if kept:
+        parts.append(
+            f"{kept} attachment{'s' if kept != 1 else ''} already downloaded."
+        )
+    if failures and not saved:
+        return [], "The attachment files could not be saved."
+    if failures:
+        parts.append(f"{failures} could not be saved.")
+    return saved, " ".join(parts)
+
+
+def listing_folder(number: str) -> Path:
+    """attachments/{listing id}, and nowhere outside that directory."""
+    if not str(number).isdigit():
+        raise ValueError("listing_id must be the Flippa listing number")
+    folder = (ATTACHMENTS / number).resolve()
+    if folder.parent != ATTACHMENTS.resolve():
+        raise ValueError("That listing folder cannot be opened.")
+    return folder
+
+
+def store_prompt_and_open(number: str, prompt: str) -> None:
+    """Write aiprompt.txt and open the listing's attachments folder."""
+    if not listing_exists(number):
+        raise KeyError(number)
+    text = str(prompt or "")
+    if len(text) > 200_000:
+        raise ValueError("The prompt is too long to save.")
+    folder = listing_folder(number)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "aiprompt.txt").write_text(text, encoding="utf-8")
+    os.startfile(folder)
+
+
+def flippa_cookie() -> str:
+    """Cookie header from flippa-cookie.txt, so listing pages can be read signed in."""
+    for path in (COOKIE_PATH, ROOT / "flippa-cookie.txt.txt"):
+        if path.is_file():
+            cookie = _cookie_text(path)
+            if cookie:
+                return cookie
+    return ""
 
 
 def read_json(path: Path, fallback):
@@ -665,7 +792,7 @@ def delete_listing(number: str, note: str = "") -> None:
 
 
 def save_listing(number: str) -> None:
-    chosen = find_listing(number, (load_businesses(), load_waiting()))
+    chosen = find_listing(number, (load_businesses(), load_waiting(), load_nda()))
     if chosen is None:
         raise KeyError(number)
     saved = load_saved()
@@ -673,6 +800,7 @@ def save_listing(number: str) -> None:
         saved.append(public_row(chosen))
     write_businesses([row for row in load_businesses() if listing_number(row) != number])
     drop_waiting(number)
+    write_json(NDA_PATH, [row for row in load_nda() if listing_number(row) != number])
     write_json(SAVED_PATH, saved)
 
 
@@ -750,10 +878,13 @@ LIST_VIEWS = {
 
 def apply_listing_snapshot(row: dict, fresh: dict) -> None:
     """Copy the latest listing-page fields onto a stored row."""
-    for key in ("name", "price_usd", "monthly_profit_usd", "profit_multiple", "age"):
+    for key in ("price_usd", "monthly_profit_usd", "profit_multiple", "age"):
         value = fresh.get(key)
         if value not in (None, ""):
             row[key] = value
+    headline = listing_display_name(fresh.get("name") or "", listing_number(row))
+    if headline:
+        row["name"] = headline
     row["inventory_usd"] = fresh.get("inventory_usd")
     kind = str(fresh.get("inventory_kind") or "").strip().lower()
     row["inventory_kind"] = kind if kind in {"includes", "excludes"} and row["inventory_usd"] else ""
@@ -798,7 +929,7 @@ def refresh_view(view: str, on_progress=None) -> tuple[int, int, bool]:
             started = True
             url = flippa_listing_url(number, str(row.get("url") or ""))
             try:
-                fresh = listing_snapshot(fetch(url, DEFAULT_TIMEOUT))
+                fresh = listing_snapshot(fetch(url, DEFAULT_TIMEOUT, flippa_cookie()))
             except (urllib.error.URLError, TimeoutError, OSError, RuntimeError):
                 fresh = None
             if fresh is None:
@@ -868,6 +999,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/listing-notes":
             self._listing_notes()
+            return
+        if path == "/api/listing-text":
+            self._listing_text()
+            return
+        if path == "/api/open-listing-folder":
+            self._open_listing_folder()
             return
         if path == "/api/refresh":
             self._refresh()
@@ -1024,6 +1161,51 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": str(error)}, status=400)
             return
         self._send_json(state())
+
+    def _listing_text(self) -> None:
+        if not _run_lock.acquire(blocking=False):
+            self._send_json({"error": "A Flippa request is already running."}, status=409)
+            return
+        try:
+            payload = self._read_json()
+            number = str(payload.get("listing_id", "")).strip()
+            if not number.isdigit():
+                raise ValueError("listing_id must be the Flippa listing number")
+            if not listing_exists(number):
+                raise KeyError(number)
+            page = fetch(f"https://flippa.com/{number}", DEFAULT_TIMEOUT, flippa_cookie())
+            saved, note = save_listing_attachments(number, page)
+            self._send_json({
+                "text": listing_prompt_text(page),
+                "saved_attachments": saved,
+                "attachment_note": note,
+            })
+        except KeyError:
+            self._send_json({"error": "listing not found"}, status=404)
+        except ValueError as error:
+            self._send_json({"error": str(error)}, status=400)
+        except json.JSONDecodeError:
+            self._send_json({"error": "expected an object"}, status=400)
+        except urllib.error.URLError:
+            self._send_json({"error": "Could not read the Flippa listing."}, status=502)
+        finally:
+            _run_lock.release()
+
+    def _open_listing_folder(self) -> None:
+        try:
+            payload = self._read_json()
+            number = str(payload.get("listing_id", "")).strip()
+            store_prompt_and_open(number, str(payload.get("prompt") or ""))
+        except KeyError:
+            self._send_json({"error": "listing not found"}, status=404)
+            return
+        except (ValueError, json.JSONDecodeError) as error:
+            self._send_json({"error": str(error)}, status=400)
+            return
+        except OSError as error:
+            self._send_json({"error": f"Could not open the listing folder: {error}"}, status=500)
+            return
+        self._send_json({"ok": True})
 
     def _save_filter(self) -> None:
         try:
