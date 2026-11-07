@@ -1,14 +1,15 @@
 {
   "12282373": {
-    "ai_score": 3.67
+    "rating": 2,
+    "ai_score": 87
   },
   "12886260": {
     "rating": 3,
-    "ai_score": 3.44
+    "ai_score": 75
   },
   "13049859": {
     "rating": 2,
-    "ai_score": 3
+    "ai_score": 69
   },
   "13412687": 1
 }

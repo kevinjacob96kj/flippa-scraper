@@ -185,7 +185,7 @@ def store_prompt_and_open(number: str, prompt: str) -> None:
         raise ValueError("The prompt is too long to save.")
     folder = listing_folder(number)
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "aiprompt.txt").write_text(text, encoding="utf-8")
+    (folder / "ai-prompt.txt").write_text(text, encoding="utf-8")
     os.startfile(folder)
 
 

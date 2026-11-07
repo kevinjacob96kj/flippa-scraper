@@ -26,8 +26,7 @@ Listing Price <Excludes/Includes> Inventory Value of <Inventory Value>
 Below is the listing page content. take it witha a grain of salt as this is written by the seller: 
 <listing-content>
 
-Score based on the bellow metrices  from 1-5. If No available information for scoring then don't include it and show at the bottom the metrices dropped. And give me average of score. these are the metrices:
-
+These are the metric definitions:
 * **Gross Profit & Gross Margin:** Total revenue minus the Cost of Goods Sold (COGS), representing the profit remaining after direct production expenses. A healthy gross margin leaves adequate room to absorb operational expenses, advertising, and net profit.
 
 
@@ -35,9 +34,6 @@ Score based on the bellow metrices  from 1-5. If No available information for sc
 
 
 * **Net Profit Margin:** The percentage of total revenue that remains as net profit after all expenses, taxes, and fees have been paid. It reveals the ultimate efficiency and bottom-line profitability of the business.
-
-
-* **Customer Acquisition Cost (CAC):** The total amount spent on sales and marketing divided by the number of new customers acquired. It tracks how efficiently a store attracts buyers.
 
 
 * **Customer Lifetime Value (LTV):** The total gross profit a single customer generates across all of their purchases over the entire duration of their relationship with the brand. It helps determine sustainable acquisition spending.
@@ -61,7 +57,43 @@ Score based on the bellow metrices  from 1-5. If No available information for sc
 * **Return Rate & Refund Costs:** The percentage of purchased products returned by customers alongside the associated processing and restocking expenses. High return rates erode profit margins and disrupt inventory planning.
 
 
-* **Inventory Turnover & Stockout History:** How efficiently inventory is sold and replaced, tracked alongside historical frequencies of running out of stock. Avoiding stockouts protects sales momentum and preserves organic search rankings.
+* **Inventory Turnover & Stockout History:** How efficiently inventory is sold and replaced, tracked alongside historical frequencies of running out of stock. Avoiding stockouts protects sales momentum and preserves organic search rankings. Only apply it to businesses that hold physical inventory.
 
 
 * **Platform & Fulfillment Fees:** The channel-specific costs (such as Amazon FBA fulfillment, referral fees, and storage charges) deducted from gross revenue. Auditing these fees is critical since they often consume the majority of gross sales.
+
+
+
+
+Score based on above metric defintions above from 0-100:
+
+A. Financial health — 40 points
+Metric	Weight
+SDE / EBITDA	15
+Gross profit margin	10
+Net profit margin	5
+Revenue consistency	10
+
+
+B. Business sustainability — 25 points
+Metric	Weight
+Organic vs. paid traffic	10
+Customer acquisition cost	5
+Returns and refunds		5
+Owner dependency		5
+
+
+C. Operational health — 20 points
+Metric	Weight
+Platform and fulfillment fees	10
+Inventory turnover / stockouts	10
+
+
+D. Growth potential — 15 points
+Metric	Weight
+AOV				5
+Conversion rate			5
+Customer retention / LTV	5
+
+
+100 points
