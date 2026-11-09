@@ -16,6 +16,7 @@ import csv
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -175,6 +176,28 @@ def listing_folder(number: str) -> Path:
     if folder.parent != ATTACHMENTS.resolve():
         raise ValueError("That listing folder cannot be opened.")
     return folder
+
+
+def delete_attachment_folders() -> int:
+    """Delete every folder and file inside attachments/. Returns how many were removed."""
+    root = ATTACHMENTS.resolve()
+    if not root.is_dir():
+        return 0
+    removed = 0
+    for child in list(root.iterdir()):
+        if child.is_symlink():
+            child.unlink()
+            removed += 1
+            continue
+        resolved = child.resolve()
+        if resolved != root and root not in resolved.parents:
+            continue
+        if child.is_dir():
+            shutil.rmtree(resolved)
+        else:
+            child.unlink()
+        removed += 1
+    return removed
 
 
 def store_prompt_and_open(number: str, prompt: str) -> None:
@@ -1012,6 +1035,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/open-listing-folder":
             self._open_listing_folder()
             return
+        if path == "/api/delete-attachments":
+            self._delete_attachments()
+            return
         if path == "/api/refresh":
             self._refresh()
             return
@@ -1212,6 +1238,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": f"Could not open the listing folder: {error}"}, status=500)
             return
         self._send_json({"ok": True})
+
+    def _delete_attachments(self) -> None:
+        try:
+            removed = delete_attachment_folders()
+        except OSError as error:
+            self._send_json({"error": f"Could not delete the attachment folders: {error}"}, status=500)
+            return
+        self._send_json({"ok": True, "removed": removed})
 
     def _save_filter(self) -> None:
         try:

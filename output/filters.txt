@@ -1,6 +1,6 @@
 Keyword                        none
 Managed by                     none
-Price minimum                  $250,000
+Price minimum                  $100,000
 Price maximum                  $300,000
 Category type                  Ecommerce, Amazon Fba, Ios Apps, Android Apps
 Country                        United States

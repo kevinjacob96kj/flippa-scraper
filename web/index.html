@@ -483,6 +483,16 @@
       <div id="list"></div>
     </main>
   </div>
+  <div id="wipe-backdrop" class="note-backdrop" hidden>
+    <form id="wipe-dialog" class="note-dialog" role="dialog" aria-modal="true" aria-labelledby="wipe-title">
+      <h3 id="wipe-title">Are you sure?</h3>
+      <p class="hint">This permanently deletes every folder and file in attachments.</p>
+      <div class="actions">
+        <button type="button" id="wipe-cancel">Cancel</button>
+        <button type="submit" class="delete">Delete all attachments</button>
+      </div>
+    </form>
+  </div>
   <div id="note-backdrop" class="note-backdrop" hidden>
     <form id="note-dialog" class="note-dialog" role="dialog" aria-modal="true" aria-labelledby="note-title">
       <h3 id="note-title">Delete listing</h3>
@@ -1032,7 +1042,7 @@
         ? `<button type="button" class="delete" data-action="delete-all">Delete all</button>`
         : "";
       const refreshLabel = refreshing ? "Refreshing…" : "Refresh";
-      document.querySelector("#toolbar").innerHTML = `<button type="button" data-action="refresh-tab"${refreshing ? " disabled" : ""}>${refreshLabel}</button><button type="button" data-action="copy-links">Copy all links</button>${deleteAll}`;
+      document.querySelector("#toolbar").innerHTML = `<button type="button" data-action="refresh-tab"${refreshing ? " disabled" : ""}>${refreshLabel}</button><button type="button" data-action="copy-links">Copy all links</button>${deleteAll}<button type="button" class="delete" data-action="delete-attachments">Delete all attachments permanently</button>`;
 
       if (view === "deleted") {
         list.innerHTML = data.deleted.length
@@ -1511,6 +1521,10 @@
         act("delete-all", "");
         return;
       }
+      if (button.dataset.action === "delete-attachments") {
+        document.querySelector("#wipe-backdrop").hidden = false;
+        return;
+      }
       if (button.dataset.action === "notes") {
         rememberListing(button.dataset.id);
         openNotes(button.dataset.id);
@@ -1589,13 +1603,58 @@
     document.querySelector("#note-backdrop").addEventListener("click", (event) => {
       if (event.target.id === "note-backdrop") closeDeleteNote();
     });
+    document.querySelector("#wipe-dialog").addEventListener("submit", (event) => {
+      event.preventDefault();
+      deleteAttachments();
+    });
+    document.querySelector("#wipe-cancel").addEventListener("click", closeWipeAttachments);
+    document.querySelector("#wipe-backdrop").addEventListener("click", (event) => {
+      if (event.target.id === "wipe-backdrop") closeWipeAttachments();
+    });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && pendingNotesId) {
         closeNotes();
         return;
       }
+      if (event.key === "Escape" && !document.querySelector("#wipe-backdrop").hidden) {
+        closeWipeAttachments();
+        return;
+      }
       if (event.key === "Escape" && pendingDeleteId) closeDeleteNote();
     });
+
+    function closeWipeAttachments() {
+      document.querySelector("#wipe-backdrop").hidden = true;
+    }
+
+    async function deleteAttachments() {
+      closeWipeAttachments();
+      error.hidden = true;
+      let response;
+      try {
+        response = await fetch("/api/delete-attachments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+      } catch (requestError) {
+        setStatus("The page could not reach the local server.", true);
+        return;
+      }
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        setStatus("The local server returned an unexpected response.", true);
+        return;
+      }
+      if (!response.ok) {
+        setStatus(payload.error || "Could not delete the attachment folders.", true);
+        return;
+      }
+      const removed = Number(payload.removed || 0);
+      setStatus(removed ? "Deleted the attachment folders." : "There were no attachment folders to delete.", false);
+    }
 
     let pendingNotesId = "";
     let generatingPromptId = "";
