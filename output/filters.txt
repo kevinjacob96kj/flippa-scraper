@@ -1,10 +1,10 @@
 Keyword                        none
 Managed by                     none
-Price minimum                  $100,000
-Price maximum                  $250,000
-Category type                  none
+Price minimum                  $250,000
+Price maximum                  $300,000
+Category type                  Ecommerce, Amazon Fba, Ios Apps, Android Apps
 Country                        United States
-Business age minimum           2 years
+Business age minimum           3 years
 Business age maximum           none
 Monthly profit minimum         none
 Monthly profit maximum         none

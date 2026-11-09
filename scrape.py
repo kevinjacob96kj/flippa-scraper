@@ -1175,6 +1175,40 @@ def listing_snapshot(page_html: str) -> dict | None:
     return fresh
 
 
+def listing_view_status(page_html: str) -> str:
+    """Buyer access on a signed-in Flippa listing page.
+
+    accepted: the NDA gate is gone and the listing can be read.
+    pending: the NDA is signed and the seller has not accepted it yet.
+    unsigned: the page still says to sign the NDA.
+    rejected: the seller declined the application.
+    """
+    lowered = page_html.lower()
+    start = lowered.find('id="sign-nda-section"')
+    if start >= 0:
+        window = page_html[start : start + 3000]
+        plain = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", window)).split()).lower()
+        if "pending approval" in plain:
+            return "pending"
+        if "reject" in plain or "declin" in plain:
+            return "rejected"
+        if "sign nda" in plain:
+            return "unsigned"
+        return ""
+    main = lowered.find('id="main_content"')
+    if main < 0:
+        return ""
+    region = page_html[main:]
+    similar = region.lower().find("browse similar")
+    hero = region[:similar] if similar > 0 else region[:30000]
+    hero_text = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", hero)).split()).lower()
+    if "sign nda to view" in hero_text:
+        return "unsigned"
+    if "monthly profit" in hero_text or "business location" in hero_text:
+        return "accepted"
+    return ""
+
+
 _META_DESCRIPTION_RE = re.compile(
     r'<meta\s+name="description"\s+content="([^"]*)"',
     re.IGNORECASE,

@@ -287,7 +287,7 @@
       padding: 16px;
       margin-bottom: 12px;
     }
-    .card.reviewed-last, ul.deleted li.prompt-last { background: var(--review-last); }
+    .card.reviewed-last, ul.deleted li.reviewed-last { background: var(--review-last); }
     .card-top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
     .name { color: var(--ink); font-size: 16px; font-weight: 700; text-decoration: none; overflow-wrap: anywhere; }
     a.name:hover { color: var(--green-dark); }
@@ -314,7 +314,13 @@
       font-weight: 700;
     }
     .permalink { display: inline-block; margin-top: 4px; color: var(--link); font-size: 13px; overflow-wrap: anywhere; }
-    .view-wait { margin: 10px 0 0; font-weight: 700; color: var(--access); }
+    .view-wait, .view-accepted, .view-pending, .view-unsigned, .view-rejected {
+      margin: 10px 0 0;
+      font-weight: 700;
+    }
+    .view-wait, .view-pending { color: var(--access); }
+    .view-accepted { color: var(--save); }
+    .view-unsigned, .view-rejected { color: var(--muted); }
     .facts {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -550,45 +556,29 @@
     let refreshing = false;
     let refreshProgress = null;
     let cancelling = false;
-    const REVIEW_LAST_KEY = "to-review-last-link";
-    const PROMPT_LAST_KEY = "generate-prompt-last";
+    const LISTING_LAST_KEY = "listing-last";
 
-    function lastReviewLinkId() {
+    function lastListingId() {
       try {
-        return localStorage.getItem(REVIEW_LAST_KEY) || "";
+        return localStorage.getItem(LISTING_LAST_KEY) || "";
       } catch (storageError) {
         return "";
       }
     }
 
-    function lastPromptId() {
+    function rememberListing(id) {
+      const number = String(id || "");
+      if (!/^\d+$/.test(number)) return;
       try {
-        return localStorage.getItem(PROMPT_LAST_KEY) || "";
-      } catch (storageError) {
-        return "";
-      }
-    }
-
-    function rememberPromptListing(id) {
-      try {
-        localStorage.setItem(PROMPT_LAST_KEY, id);
+        localStorage.setItem(LISTING_LAST_KEY, number);
       } catch (storageError) {
         return;
       }
-    }
-
-    function rememberReviewLink(id) {
-      try {
-        localStorage.setItem(REVIEW_LAST_KEY, id);
-      } catch (storageError) {
-        return;
-      }
-      if (view !== "businesses") return;
-      list.querySelectorAll("article.card.reviewed-last").forEach((cardEl) => {
-        cardEl.classList.remove("reviewed-last");
+      list.querySelectorAll(".reviewed-last").forEach((row) => {
+        row.classList.remove("reviewed-last");
       });
-      const cardEl = list.querySelector(`article.card[data-id="${id}"]`);
-      if (cardEl) cardEl.classList.add("reviewed-last");
+      const row = list.querySelector(`article.card[data-id="${number}"], ul.deleted li[data-id="${number}"]`);
+      if (row) row.classList.add("reviewed-last");
     }
 
     function escapeHtml(value) {
@@ -979,6 +969,15 @@
       return `<div class="score-stack"><div class="rating" role="group" aria-label="Rating">${buttons}</div><label class="ai-score">AI score<input type="text" inputmode="decimal" autocomplete="off" spellcheck="false" maxlength="10" aria-label="AI score out of 100" data-action="ai-score" data-id="${id}" value="${escapeHtml(ai)}"><span class="out-of">/100</span></label></div>`;
     }
 
+    function ndaStatusNote(item) {
+      const status = String((item && item.nda_status) || "");
+      if (status === "accepted") return `<p class="view-accepted">Listing view has been accepted</p>`;
+      if (status === "pending") return `<p class="view-pending">NDA signed. Waiting for the seller to accept.</p>`;
+      if (status === "unsigned") return `<p class="view-unsigned">NDA is not signed on this listing.</p>`;
+      if (status === "rejected") return `<p class="view-rejected">The seller did not accept this listing view.</p>`;
+      return "";
+    }
+
     function listingName(item) {
       const name = String((item && item.name) || "").trim();
       const id = String((item && item.listing_id) || "").trim();
@@ -1001,13 +1000,14 @@
       const when = view === "first_access" ? fact("Can view on", escapeHtml(viewDate(item.view_on) || "—")) : "";
       const waitText = view === "first_access" ? daysUntilViewLabel(item.view_on) : "";
       const wait = waitText ? `<p class="view-wait">${escapeHtml(waitText)}</p>` : "";
+      const ndaNote = view === "nda" ? ndaStatusNote(item) : "";
       const rating = safeId ? ratingControl(safeId) : "";
       const savedNotes = safeId ? notesBlock(safeId) : "";
       const actions = safeId ? `<div class="actions">${actionButtons(view, safeId)}</div>` : "";
-      const highlighted = safeId && (safeId === lastPromptId() || (view === "businesses" && safeId === lastReviewLinkId()));
+      const highlighted = safeId && safeId === lastListingId();
       const cardClass = highlighted ? "card reviewed-last" : "card";
       const idAttr = safeId ? ` data-id="${safeId}"` : "";
-      return `<article class="${cardClass}"${idAttr}>${`<div class="card-top">${title}<div class="card-side">${priceLine(item)}${rating}</div></div>`}${link}${wait}<dl class="facts">${fact("Location", escapeHtml(item.location || "—"))}${fact("Type", escapeHtml(item.type || "—"))}${fact("Profit", money(item.monthly_profit_usd))}${fact("Multiple", multipleText(item.profit_multiple))}${fact("Age", escapeHtml(item.age || "—"))}${when}<div class="wide"><dt>Verifications</dt><dd class="badges">${badges(item.verifications)}</dd></div></dl>${savedNotes}${actions}</article>`;
+      return `<article class="${cardClass}"${idAttr}>${`<div class="card-top">${title}<div class="card-side">${priceLine(item)}${rating}</div></div>`}${link}${wait}${ndaNote}<dl class="facts">${fact("Location", escapeHtml(item.location || "—"))}${fact("Type", escapeHtml(item.type || "—"))}${fact("Profit", money(item.monthly_profit_usd))}${fact("Multiple", multipleText(item.profit_multiple))}${fact("Age", escapeHtml(item.age || "—"))}${when}<div class="wide"><dt>Verifications</dt><dd class="badges">${badges(item.verifications)}</dd></div></dl>${savedNotes}${actions}</article>`;
     }
 
     function render() {
@@ -1049,8 +1049,9 @@
               const notesBtn = /^\d+$/.test(id)
                 ? `<div class="actions"><button type="button" data-action="notes" data-id="${id}">Add notes</button>${promptButton(id)}</div>${notesBlock(id)}`
                 : "";
-              const highlighted = /^\d+$/.test(id) && id === lastPromptId();
-              return `<li${highlighted ? ` class="prompt-last"` : ""}><div class="deleted-top">${title}${price}</div>${note}${notesBtn}</li>`;
+              const highlighted = /^\d+$/.test(id) && id === lastListingId();
+              const rowAttr = /^\d+$/.test(id) ? ` data-id="${id}"` : "";
+              return `<li${highlighted ? ` class="reviewed-last"` : ""}${rowAttr}><div class="deleted-top">${title}${price}</div>${note}${notesBtn}</li>`;
             }).join("")}</ul>`
           : `<p class="empty">No deleted listings yet.</p>`;
         return;
@@ -1128,10 +1129,16 @@
         else setStatus("Refresh cancelled.", false);
         return;
       }
+      const accepted = view === "nda"
+        ? (payload.nda || []).filter((row) => row.nda_status === "accepted").length
+        : 0;
+      const acceptedNote = accepted
+        ? ` ${accepted === 1 ? "1 listing view has" : accepted + " listing views have"} been accepted.`
+        : "";
       if (!updated && !missed) setStatus("Nothing on this tab to refresh.", false);
       else if (!updated) setStatus("Could not read those listings from Flippa.", true);
-      else if (missed) setStatus(`Updated ${updated} listings. ${missed} could not be read.`, false);
-      else setStatus(`Updated ${updated} listings.`, false);
+      else if (missed) setStatus(`Updated ${updated} listings. ${missed} could not be read.${acceptedNote}`, false);
+      else setStatus(`Updated ${updated} listings.${acceptedNote}`, false);
     }
 
     async function readRefreshStream(response) {
@@ -1477,11 +1484,12 @@
     });
     document.querySelector("main").addEventListener("click", (event) => {
       const link = event.target.closest("a.name, a.permalink");
-      if (link && view === "businesses") {
-        const cardEl = link.closest("article.card");
-        const id = cardEl && cardEl.dataset.id;
-        if (id) rememberReviewLink(id);
+      if (link) {
+        const row = link.closest("article.card, ul.deleted li");
+        if (row && row.dataset.id) rememberListing(row.dataset.id);
       }
+      const score = event.target.closest("input[data-action='ai-score']");
+      if (score) rememberListing(score.dataset.id);
       const button = event.target.closest("button");
       if (!button || !button.dataset.action) return;
       if (button.dataset.action === "copy-links") {
@@ -1504,6 +1512,7 @@
         return;
       }
       if (button.dataset.action === "notes") {
+        rememberListing(button.dataset.id);
         openNotes(button.dataset.id);
         return;
       }
@@ -1517,12 +1526,18 @@
       }
       if (button.dataset.action === "rate") {
         const listingId = button.dataset.id;
+        rememberListing(listingId);
         const score = Number(button.dataset.rating);
         const current = Number((data.ratings || {})[listingId] || 0);
         rateListing(listingId, current === score ? null : score);
         return;
       }
       act(button.dataset.action, button.dataset.id);
+    });
+    document.querySelector("main").addEventListener("focusin", (event) => {
+      const input = event.target;
+      if (!input.matches || !input.matches("input[data-action='ai-score']")) return;
+      rememberListing(input.dataset.id);
     });
     document.querySelector("main").addEventListener("focusout", (event) => {
       const input = event.target;
@@ -1906,7 +1921,7 @@ ${filled}`;
 
     async function generatePrompt(id) {
       if (!id || generatingPromptId) return;
-      rememberPromptListing(id);
+      rememberListing(id);
       const scoreInput = document.querySelector(`input[data-action="ai-score"][data-id="${id}"]`);
       if (scoreInput) {
         const savedScore = await persistAiScore(id, scoreInput.value);

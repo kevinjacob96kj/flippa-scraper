@@ -30,5 +30,21 @@
     "access_days": 3,
     "inventory_usd": 15000,
     "inventory_kind": "includes"
+  },
+  {
+    "name": "Amazon Store | Home and Garden - 12067735",
+    "price_usd": 275000,
+    "inventory_usd": null,
+    "inventory_kind": "",
+    "location": "MD, United States",
+    "type": "Amazon Store",
+    "monthly_profit_usd": 10200,
+    "profit_multiple": 2.2,
+    "age": "3 years",
+    "verifications": "Amazon Seller",
+    "listing_id": "12067735",
+    "url": "https://flippa.com/12067735",
+    "view_on": "2026-11-09",
+    "access_days": 1
   }
 ]

@@ -42,6 +42,7 @@ from scrape import (
     listing_display_name,
     listing_prompt_text,
     listing_snapshot,
+    listing_view_status,
     read_filters,
     scrape,
     settings_from_form,
@@ -929,13 +930,18 @@ def refresh_view(view: str, on_progress=None) -> tuple[int, int, bool]:
             started = True
             url = flippa_listing_url(number, str(row.get("url") or ""))
             try:
-                fresh = listing_snapshot(fetch(url, DEFAULT_TIMEOUT, flippa_cookie()))
+                page = fetch(url, DEFAULT_TIMEOUT, flippa_cookie())
             except (urllib.error.URLError, TimeoutError, OSError, RuntimeError):
-                fresh = None
-            if fresh is None:
+                page = ""
+            fresh = listing_snapshot(page) if page else None
+            status = listing_view_status(page) if page and view == "nda" else ""
+            if fresh is None and not status:
                 missed += 1
             else:
-                apply_listing_snapshot(row, fresh)
+                if fresh is not None:
+                    apply_listing_snapshot(row, fresh)
+                if status:
+                    row["nda_status"] = status
                 updated += 1
             if on_progress:
                 on_progress(index, total, name)
