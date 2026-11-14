@@ -1,8 +1,8 @@
 Keyword                        none
 Managed by                     none
 Price minimum                  $100,000
-Price maximum                  $300,000
-Category type                  Ecommerce, Amazon Fba, Ios Apps, Android Apps
+Price maximum                  $500,000
+Category type                  Amazon Fba, Ios Apps, Android Apps
 Country                        United States
 Business age minimum           3 years
 Business age maximum           none
@@ -13,7 +13,7 @@ Monthly revenue maximum        none
 Profit multiple                none
 Revenue multiple minimum       none
 Revenue multiple maximum       none
-Industry                       Automotive, Business, Education, Electronics, Entertainment, Lifestyle, Food and Drink, General Knowledge, Hobbies and Games, Home and Garden, Internet, Sports and Outdoor, Travel
+Industry                       Automotive, Business, Design and Style, Education, Electronics, Entertainment, Lifestyle, Food and Drink, General Knowledge, Health and Beauty, Hobbies and Games, Home and Garden, Internet, Sports and Outdoor, Travel
 Monthly users minimum          none
 Monthly users maximum          none
 Monthly pageviews minimum      none

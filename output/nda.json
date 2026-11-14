@@ -28,51 +28,6 @@
     "nda_status": "unsigned"
   },
   {
-    "name": "Club Stamping - 12279616",
-    "price_usd": 125000,
-    "location": "NY, United States",
-    "type": "Ecommerce",
-    "monthly_profit_usd": 3334,
-    "profit_multiple": 3.1,
-    "age": "9 years",
-    "verifications": "Google Analytics, Shopify",
-    "listing_id": "12279616",
-    "url": "https://flippa.com/12279616",
-    "inventory_usd": 6000,
-    "inventory_kind": "includes",
-    "nda_status": "accepted"
-  },
-  {
-    "name": "Established Premium Cannabis Accessories Brand - 13069044",
-    "price_usd": 145000,
-    "location": "MO, United States",
-    "type": "Ecommerce",
-    "monthly_profit_usd": 5083,
-    "profit_multiple": 2.4,
-    "age": "10 years",
-    "verifications": "Shopify",
-    "listing_id": "13069044",
-    "url": "https://flippa.com/13069044",
-    "inventory_usd": 15000,
-    "inventory_kind": "excludes",
-    "nda_status": "accepted"
-  },
-  {
-    "name": "Overhalfsale - 11636800",
-    "price_usd": 149000,
-    "location": "IL, United States",
-    "type": "Ecommerce",
-    "monthly_profit_usd": 27067,
-    "profit_multiple": 0.5,
-    "age": "17 years",
-    "verifications": "Google Analytics",
-    "listing_id": "11636800",
-    "url": "https://flippa.com/11636800",
-    "inventory_usd": null,
-    "inventory_kind": "",
-    "nda_status": "accepted"
-  },
-  {
     "name": "Amazon Store | Home and Garden - 11449610",
     "price_usd": 179000,
     "inventory_usd": null,
@@ -100,7 +55,7 @@
     "verifications": "",
     "listing_id": "14196262",
     "url": "https://flippa.com/14196262",
-    "nda_status": "pending"
+    "nda_status": "accepted"
   },
   {
     "name": "Ecommerce | Home and Garden - 13373980",
@@ -114,7 +69,8 @@
     "age": "3 years",
     "verifications": "Google Analytics, Paypal, Shopify, Stripe",
     "listing_id": "13373980",
-    "url": "https://flippa.com/13373980"
+    "url": "https://flippa.com/13373980",
+    "nda_status": "pending"
   },
   {
     "name": "Ecommerce | Home and Garden - 12721241",
@@ -128,6 +84,37 @@
     "age": "14 years",
     "verifications": "Shopify",
     "listing_id": "12721241",
-    "url": "https://flippa.com/12721241"
+    "url": "https://flippa.com/12721241",
+    "nda_status": "pending"
+  },
+  {
+    "name": "Ecommerce Store | Food and Drink - 14079473",
+    "price_usd": 130000,
+    "inventory_usd": 15000,
+    "inventory_kind": "includes",
+    "location": "WI, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 3990,
+    "profit_multiple": 2.7,
+    "age": "10 years",
+    "verifications": "Amazon Seller, eBay",
+    "listing_id": "14079473",
+    "url": "https://flippa.com/14079473",
+    "nda_status": "pending"
+  },
+  {
+    "name": "Amazon Store | Home and Garden - 12067735",
+    "price_usd": 275000,
+    "inventory_usd": null,
+    "inventory_kind": "",
+    "location": "MD, United States",
+    "type": "Amazon Store",
+    "monthly_profit_usd": 10200,
+    "profit_multiple": 2.2,
+    "age": "3 years",
+    "verifications": "Amazon Seller",
+    "listing_id": "12067735",
+    "url": "https://flippa.com/12067735",
+    "nda_status": "pending"
   }
 ]

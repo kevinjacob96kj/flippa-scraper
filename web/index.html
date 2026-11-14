@@ -222,16 +222,17 @@
     }
     button.primary:hover:not(:disabled) { background: var(--green-dark); }
     button.primary:disabled { opacity: 0.65; cursor: wait; }
-    #status, #error, #generate-status { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
-    #status[hidden], #error[hidden], #generate-status[hidden] { display: none; }
-    #status.error, #error, #generate-status.error { color: var(--delete); background: var(--delete-bg); }
-    #status.ok, #generate-status.ok { color: #067647; background: #ecfdf3; }
+    #status, #error, #generate-status, #import-status { margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+    #status[hidden], #error[hidden], #generate-status[hidden], #import-status[hidden] { display: none; }
+    #status.error, #error, #generate-status.error, #import-status.error { color: var(--delete); background: var(--delete-bg); }
+    #status.ok, #generate-status.ok, #import-status.ok { color: #067647; background: #ecfdf3; }
+    #generate-status button { margin-left: 8px; }
     #flippa-link { display: inline-block; margin-top: 8px; color: var(--link); font-size: 13px; }
     main { min-width: 0; padding: 18px 22px 48px; }
     .results-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; }
     h2.view { margin: 0; font-size: 22px; letter-spacing: -0.03em; }
     .view-count { margin: 2px 0 0; color: var(--muted); }
-    nav { display: flex; gap: 18px; margin: 14px 0; border-bottom: 1px solid var(--line); }
+    nav { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0; border-bottom: 1px solid var(--line); }
     nav button {
       background: none;
       border: 0;
@@ -242,6 +243,12 @@
     }
     nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--green); font-weight: 700; }
     .review-help { margin: 0 0 14px; color: var(--muted); }
+    .import-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin: 0 0 14px; }
+    .import-bar[hidden] { display: none; }
+    .import-bar label { flex: 1; min-width: 220px; display: grid; gap: 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    .import-bar input { width: 100%; }
+    .import-bar button { flex-shrink: 0; }
+    .import-bar #import-status { flex-basis: 100%; }
     .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
     .refresh-progress-row {
       display: flex;
@@ -390,6 +397,29 @@
     .prompt-dialog .field { color: var(--ink); font-weight: 700; }
     .prompt-dialog .field input,
     .prompt-dialog .field textarea { color: var(--ink); font-weight: 400; }
+    .results-dialog { width: min(920px, 100%); max-height: min(88vh, 900px); overflow: auto; }
+    .results-dialog textarea { min-height: 140px; font-family: Consolas, monospace; font-size: 12px; }
+    .results-preview { margin-top: 12px; }
+    .results-preview table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .results-preview th, .results-preview td {
+      border: 1px solid var(--line);
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .results-preview th { background: #f8fafc; }
+    .results-preview .financial-takeaways {
+      margin-top: 14px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .results-preview .financial-takeaways h3 { margin: 0 0 10px; font-size: 15px; }
+    .results-preview .takeaway-section { margin: 0 0 12px; }
+    .results-preview .takeaway-section h4 { margin: 0 0 6px; font-size: 14px; }
+    .results-preview .takeaway-section ul { margin: 0; padding-left: 18px; }
+    .results-preview .takeaway-section li { margin: 4px 0; }
     .listing-notes {
       margin: 10px 0 0;
       color: var(--muted);
@@ -471,6 +501,7 @@
       </div>
       <nav>
         <button type="button" data-view="businesses" aria-selected="true">To review</button>
+        <button type="button" data-view="imported" aria-selected="false">Import</button>
         <button type="button" data-view="first_access" aria-selected="false">First access</button>
         <button type="button" data-view="saved" aria-selected="false">Top Choices</button>
         <button type="button" data-view="nda" aria-selected="false">Signed NDA</button>
@@ -478,6 +509,13 @@
         <button type="button" data-view="deleted" aria-selected="false">Deleted</button>
       </nav>
       <p class="review-help">Open a listing, set a First access date, add it to Top Choices, mark it Waiting inquiry or Signed NDA, or delete it so the next search skips that number.</p>
+      <form id="import-bar" class="import-bar" hidden>
+        <label for="import-url">Flippa URL
+          <input id="import-url" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://flippa.com/14375055">
+        </label>
+        <button type="submit" class="primary" id="import-button">Import</button>
+        <p id="import-status" hidden></p>
+      </form>
       <p id="error" hidden></p>
       <p id="generate-status" hidden></p>
       <div id="list"></div>
@@ -530,13 +568,32 @@
       </div>
     </form>
   </div>
+  <div id="results-backdrop" class="note-backdrop" hidden>
+    <form id="results-dialog" class="note-dialog results-dialog" role="dialog" aria-modal="true" aria-labelledby="results-title">
+      <h3 id="results-title">Results</h3>
+      <p class="hint" id="results-mode">Add results</p>
+      <div id="results-paste">
+        <label class="field" for="results-html">Scorecard inputs
+          <textarea id="results-html" spellcheck="false" placeholder="Paste the HTML from the prompt"></textarea>
+        </label>
+      </div>
+      <div id="results-preview" class="results-preview" hidden></div>
+      <p class="hint" id="results-status" hidden></p>
+      <div class="actions">
+        <button type="button" id="results-clear" class="delete" hidden>Clear</button>
+        <button type="button" id="results-replace" hidden>Replace</button>
+        <button type="button" id="results-cancel">Cancel</button>
+        <button type="submit" id="results-save" class="save">Save</button>
+      </div>
+    </form>
+  </div>
   <noscript>This page needs JavaScript to load filters from the local server.</noscript>
   <script>
     const form = document.querySelector("#filters");
     const list = document.querySelector("#list");
     const error = document.querySelector("#error");
     const VIEW_KEY = "current-tab";
-    const VIEWS = new Set(["businesses", "first_access", "saved", "nda", "waiting_inquiry", "deleted"]);
+    const VIEWS = new Set(["businesses", "imported", "first_access", "saved", "nda", "waiting_inquiry", "deleted"]);
 
     function storedView() {
       try {
@@ -560,7 +617,7 @@
     document.querySelectorAll("nav button").forEach((button) => {
       button.setAttribute("aria-selected", String(button.dataset.view === view));
     });
-    let data = { businesses: [], saved: [], deleted: [], first_access: [], nda: [], waiting_inquiry: [], ratings: {}, ai_scores: {}, listing_notes: {}, metrics: "", saved_filters: [] };
+    let data = { businesses: [], saved: [], deleted: [], first_access: [], nda: [], waiting_inquiry: [], imported: [], ratings: {}, ai_scores: {}, listing_notes: {}, listing_results: {}, metrics: "", scorecard_instructions: "", saved_filters: [], attachment_folders: [] };
     let filtersReady = false;
     let running = false;
     let refreshing = false;
@@ -840,7 +897,7 @@
         <div class="search-bar">
           <p id="status" role="status" hidden></p>
           <button class="primary" id="search" type="submit">Search Flippa</button>
-          <p class="hint">Saves filters.txt and imports Flippa's public search pages. To review is replaced. Top Choices, First access, Signed NDA, Waiting inquiry, and Deleted numbers stay and are skipped.</p>
+          <p class="hint">Saves filters.txt and imports Flippa's public search pages. To review is replaced. Import, Top Choices, First access, Signed NDA, Waiting inquiry, and Deleted numbers stay and are skipped.</p>
           <a id="flippa-link" target="_blank" rel="noopener" hidden>Open the saved search on Flippa</a>
         </div>`;
       setSearchLink(source.search_url);
@@ -942,17 +999,32 @@
       form.setAttribute("aria-busy", String(busy));
     }
 
+    function folderButton(id) {
+      const folders = data.attachment_folders || [];
+      if (!folders.includes(id)) return "";
+      return `<button type="button" data-action="open-folder" data-id="${id}">Open folder</button>`;
+    }
+
     function promptButton(id) {
       const busy = generatingPromptId === id;
       const label = busy ? "Generating…" : "Generate prompt";
       return `<button type="button" data-action="generate-prompt" data-id="${id}"${busy ? " disabled" : ""}>${label}</button>`;
     }
 
+    function resultsButton(id) {
+      const saved = String((data.listing_results || {})[id] || "").trim();
+      const label = saved ? "View results" : "Add results";
+      return `<button type="button" data-action="results" data-id="${id}">${label}</button>`;
+    }
+
     function actionButtons(viewName, id) {
-      const notes = `<button type="button" data-action="notes" data-id="${id}">Add notes</button>${promptButton(id)}`;
+      const notes = `<button type="button" data-action="notes" data-id="${id}">Add notes</button>${promptButton(id)}${folderButton(id)}${resultsButton(id)}`;
       const nda = `<button type="button" class="save" data-action="nda" data-id="${id}">Signed NDA</button>`;
       const waiting = `<button type="button" class="access" data-action="waiting-inquiry" data-id="${id}">Waiting inquiry</button>`;
       const remove = `<button type="button" class="delete" data-action="delete" data-id="${id}">Delete</button>`;
+      if (viewName === "imported") {
+        return `${notes}<button type="button" data-action="review" data-id="${id}">To review</button><button type="button" class="access" data-action="first-access" data-id="${id}">First access</button><button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${nda}${waiting}${remove}`;
+      }
       if (viewName === "waiting_inquiry") {
         return `${notes}<button type="button" class="access" data-action="first-access" data-id="${id}">First access</button><button type="button" class="save" data-action="save" data-id="${id}">Top Choices</button>${nda}${remove}`;
       }
@@ -1023,6 +1095,7 @@
     function render() {
       const titles = {
         businesses: ["To review", data.businesses.length, "listings"],
+        imported: ["Import", (data.imported || []).length, "listings"],
         first_access: ["First access", data.first_access.length, "listings"],
         saved: ["Top Choices", data.saved.length, "listings"],
         nda: ["Signed NDA", (data.nda || []).length, "listings"],
@@ -1038,6 +1111,10 @@
       const [label, count, unit] = titles[view];
       document.querySelector("#view-title").textContent = label;
       document.querySelector("#view-count").textContent = `${count} ${unit}`;
+      document.querySelector("#import-bar").hidden = view !== "imported";
+      document.querySelector(".review-help").textContent = view === "imported"
+        ? "Paste a Flippa listing URL. It stays here until you move it to another tab. The next search skips listings on this tab."
+        : "Open a listing, set a First access date, add it to Top Choices, mark it Waiting inquiry or Signed NDA, or delete it so the next search skips that number.";
       const deleteAll = view === "businesses"
         ? `<button type="button" class="delete" data-action="delete-all">Delete all</button>`
         : "";
@@ -1057,7 +1134,7 @@
               const price = (record.price_usd || inventoryText(record)) ? priceLine(record) : "";
               const id = record.listing_id;
               const notesBtn = /^\d+$/.test(id)
-                ? `<div class="actions"><button type="button" data-action="notes" data-id="${id}">Add notes</button>${promptButton(id)}</div>${notesBlock(id)}`
+                ? `<div class="actions"><button type="button" data-action="notes" data-id="${id}">Add notes</button>${promptButton(id)}${folderButton(id)}${resultsButton(id)}</div>${notesBlock(id)}`
                 : "";
               const highlighted = /^\d+$/.test(id) && id === lastListingId();
               const rowAttr = /^\d+$/.test(id) ? ` data-id="${id}"` : "";
@@ -1066,9 +1143,10 @@
           : `<p class="empty">No deleted listings yet.</p>`;
         return;
       }
-      const rows = { businesses: data.businesses, saved: data.saved, first_access: data.first_access, nda: data.nda || [], waiting_inquiry: data.waiting_inquiry || [] }[view];
+      const rows = { businesses: data.businesses, imported: data.imported || [], saved: data.saved, first_access: data.first_access, nda: data.nda || [], waiting_inquiry: data.waiting_inquiry || [] }[view];
       const emptyText = {
         businesses: "No listings to review. Set filters and search.",
+        imported: "Nothing imported yet. Paste a Flippa listing URL above.",
         saved: "Nothing in Top Choices.",
         first_access: "Nothing waiting for first access.",
         nda: "Nothing in Signed NDA.",
@@ -1081,7 +1159,7 @@
       if (view === "deleted") {
         return data.deleted.map((item) => listingHref(deletedRecord(item))).filter(Boolean);
       }
-      const rows = { businesses: data.businesses, saved: data.saved, first_access: data.first_access, nda: data.nda || [], waiting_inquiry: data.waiting_inquiry || [] }[view] || [];
+      const rows = { businesses: data.businesses, imported: data.imported || [], saved: data.saved, first_access: data.first_access, nda: data.nda || [], waiting_inquiry: data.waiting_inquiry || [] }[view] || [];
       return rows.map(listingHref).filter(Boolean);
     }
 
@@ -1103,6 +1181,7 @@
       if (viewName === "deleted") return data.deleted || [];
       return {
         businesses: data.businesses,
+        imported: data.imported || [],
         saved: data.saved,
         first_access: data.first_access,
         nda: data.nda || [],
@@ -1440,7 +1519,7 @@
         }
         data = payload;
         const skipped = payload.skipped
-          ? ` ${payload.skipped} listing numbers already in Deleted, Top Choices, First access, Signed NDA, or Waiting inquiry were skipped.`
+          ? ` ${payload.skipped} listing numbers already in Deleted, Import, Top Choices, First access, Signed NDA, or Waiting inquiry were skipped.`
           : "";
         setStatus(`Imported ${payload.imported} listings.${skipped}`, false);
         if (payload.filters && payload.filters.form) setSearchLink(payload.filters.form.search_url);
@@ -1465,7 +1544,69 @@
       render();
     }
 
+    let importing = false;
+
+    function setImportStatus(message, isError) {
+      const status = document.querySelector("#import-status");
+      status.hidden = !message;
+      status.textContent = message || "";
+      status.className = isError ? "error" : "ok";
+    }
+
+    async function importListing(event) {
+      event.preventDefault();
+      if (importing) return;
+      const input = document.querySelector("#import-url");
+      const url = input.value.trim();
+      error.hidden = true;
+      if (!url) {
+        setImportStatus("Paste a Flippa listing URL.", true);
+        input.focus();
+        return;
+      }
+      importing = true;
+      const button = document.querySelector("#import-button");
+      button.disabled = true;
+      button.textContent = "Importing…";
+      setImportStatus("", false);
+      try {
+        const response = await fetch("/api/import-listing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (parseError) {
+          setImportStatus("The local server returned an unexpected response.", true);
+          return;
+        }
+        if (!response.ok) {
+          setImportStatus(payload.error || "Could not import that listing.", true);
+          return;
+        }
+        data = payload;
+        const match = url.match(/(\d{4,})/);
+        const id = match ? match[1] : "";
+        const row = (data.imported || []).find((item) => String(item.listing_id) === id);
+        setImportStatus(`Imported ${row ? listingName(row) : "that listing"}.`, false);
+        input.value = "";
+        rememberView("imported");
+        render();
+      } catch (requestError) {
+        setImportStatus("The page could not reach the local server.", true);
+      } finally {
+        importing = false;
+        if (button.isConnected) {
+          button.disabled = false;
+          button.textContent = "Import";
+        }
+      }
+    }
+
     form.addEventListener("submit", onSubmit);
+    document.querySelector("#import-bar").addEventListener("submit", importListing);
     form.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || !event.target || event.target.id !== "filter-name") return;
       event.preventDefault();
@@ -1530,8 +1671,17 @@
         openNotes(button.dataset.id);
         return;
       }
+      if (button.dataset.action === "results") {
+        rememberListing(button.dataset.id);
+        openResults(button.dataset.id);
+        return;
+      }
       if (button.dataset.action === "generate-prompt") {
         generatePrompt(button.dataset.id);
+        return;
+      }
+      if (button.dataset.action === "open-folder") {
+        openAttachmentFolder(button.dataset.id);
         return;
       }
       if (button.dataset.action === "delete") {
@@ -1568,7 +1718,7 @@
     let pendingDeleteId = "";
 
     function listingTitle(id) {
-      const pools = [data.businesses, data.saved, data.first_access, data.nda || [], data.waiting_inquiry || []];
+      const pools = [data.businesses, data.imported || [], data.saved, data.first_access, data.nda || [], data.waiting_inquiry || []];
       for (const rows of pools) {
         const row = (rows || []).find((item) => String(item.listing_id) === String(id));
         if (row) return String(row.name || id);
@@ -1618,6 +1768,10 @@
       }
       if (event.key === "Escape" && !document.querySelector("#wipe-backdrop").hidden) {
         closeWipeAttachments();
+        return;
+      }
+      if (event.key === "Escape" && !document.querySelector("#results-backdrop").hidden) {
+        closeResults();
         return;
       }
       if (event.key === "Escape" && pendingDeleteId) closeDeleteNote();
@@ -1681,7 +1835,7 @@
     }
 
     function findListing(id) {
-      const pools = [data.businesses, data.saved, data.first_access, data.nda || [], data.waiting_inquiry || []];
+      const pools = [data.businesses, data.imported || [], data.saved, data.first_access, data.nda || [], data.waiting_inquiry || []];
       for (const rows of pools) {
         const row = (rows || []).find((item) => String(item.listing_id) === String(id));
         if (row) return row;
@@ -1865,13 +2019,13 @@
       const filled = fillPlaceholders(template, item, fields);
       const comments = fields.comments.trim();
       const hadCommentPlaceholder = /<[^<>\n]*comments?[^<>\n]*>/i.test(template);
+      let prompt;
       if (metricsIsFullPrompt(template)) {
         const withListing = insertListing(filled, fields.listing);
-        if (comments && !hadCommentPlaceholder) return insertComments(withListing, comments);
-        return withListing;
-      }
-      const commentBlock = comments ? `\nComments:\n${comments}\n` : "";
-      return `What do you think about this business:
+        prompt = comments && !hadCommentPlaceholder ? insertComments(withListing, comments) : withListing;
+      } else {
+        const commentBlock = comments ? `\nComments:\n${comments}\n` : "";
+        prompt = `What do you think about this business:
 Starting with 30k downpayment and rest in sba loan with 11% interest rate. Give me a detailed and concise report based on:
 
 Amazon link: ${fields.amazon.trim()}
@@ -1883,8 +2037,11 @@ Instagram link: ${fields.social.trim()}
 Other / Shopify link: ${fields.shopify.trim()}
 ${String(fields.listing || "").trim() ? `\n<listing-content>\n${String(fields.listing).trim()}\n</listing-content>\n` : ""}
 ${commentBlock}
-Score based on the bellow metrices from 1-5: 
 ${filled}`;
+      }
+      const instructions = String(data.scorecard_instructions || "").trim();
+      const outputRule = "OUTPUT RULE: Your entire reply is one ```html code block and nothing else. Do not write a report. Do not write Python. Do not show code or code output. Fill the <pre> block. The page calculates the score from that HTML.";
+      return `${outputRule}\n\n${prompt.replace(/\s*$/, "")}\n\n${instructions}\n`;
     }
 
     function openNotes(id) {
@@ -1909,6 +2066,137 @@ ${filled}`;
       document.querySelector("#prompt-backdrop").hidden = true;
     }
 
+    let pendingResultsId = "";
+
+    function savedResults(id) {
+      return String((data.listing_results || {})[id] || "");
+    }
+
+    function unwrapResultsHtml(raw) {
+      let text = String(raw || "").trim();
+      const fence = text.match(/^```(?:html)?\s*([\s\S]*?)\s*```$/i);
+      if (fence) text = fence[1].trim();
+      return text;
+    }
+
+    function sanitizeResultsNode(node) {
+      if (node.nodeType === Node.TEXT_NODE) return document.createTextNode(node.textContent);
+      if (node.nodeType !== Node.ELEMENT_NODE) return document.createDocumentFragment();
+      const allowed = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "TH", "TD", "STRONG", "EM", "B", "I", "UL", "OL", "LI", "P", "BR", "H2", "H3", "H4", "DIV", "SPAN"]);
+      if (!allowed.has(node.tagName)) {
+        const fragment = document.createDocumentFragment();
+        node.childNodes.forEach((child) => fragment.appendChild(sanitizeResultsNode(child)));
+        return fragment;
+      }
+      const clean = document.createElement(node.tagName.toLowerCase());
+      if (node.tagName === "DIV") {
+        const classes = String(node.className || "").split(/\s+/).filter((name) => name === "financial-takeaways" || name === "takeaway-section");
+        if (classes.length) clean.className = classes.join(" ");
+      }
+      node.childNodes.forEach((child) => clean.appendChild(sanitizeResultsNode(child)));
+      return clean;
+    }
+
+    function resultsParts(raw) {
+      const parsed = new DOMParser().parseFromString(unwrapResultsHtml(raw), "text/html");
+      const table = parsed.querySelector("table");
+      const takeaways = parsed.querySelector(".financial-takeaways");
+      return {
+        table: table ? sanitizeResultsNode(table) : null,
+        takeaways: takeaways ? sanitizeResultsNode(takeaways) : null,
+      };
+    }
+
+    function renderResultsPreview(raw) {
+      const box = document.querySelector("#results-preview");
+      const parts = resultsParts(raw);
+      box.replaceChildren();
+      if (parts.table) box.appendChild(parts.table);
+      if (parts.takeaways) box.appendChild(parts.takeaways);
+      box.hidden = !parts.table && !parts.takeaways;
+      return Boolean(parts.table || parts.takeaways);
+    }
+
+    function openResults(id) {
+      pendingResultsId = id;
+      const html = savedResults(id);
+      const has = Boolean(html.trim());
+      document.querySelector("#results-title").textContent = listingName(findListing(id));
+      document.querySelector("#results-mode").textContent = has
+        ? "View results"
+        : "Paste the HTML from the prompt. The page calculates the score.";
+      document.querySelector("#results-html").value = html;
+      document.querySelector("#results-paste").hidden = has;
+      document.querySelector("#results-replace").hidden = !has;
+      document.querySelector("#results-clear").hidden = !has;
+      document.querySelector("#results-save").hidden = has;
+      const status = document.querySelector("#results-status");
+      status.hidden = true;
+      status.textContent = "";
+      renderResultsPreview(html);
+      document.querySelector("#results-backdrop").hidden = false;
+      if (!has) document.querySelector("#results-html").focus();
+    }
+
+    function closeResults() {
+      pendingResultsId = "";
+      document.querySelector("#results-backdrop").hidden = true;
+    }
+
+    async function saveResults(html) {
+      const id = pendingResultsId;
+      if (!id) return;
+      const status = document.querySelector("#results-status");
+      const text = unwrapResultsHtml(html);
+      const scorecardPaste = /scorecard inputs/i.test(text);
+      if (text && !scorecardPaste && !renderResultsPreview(text)) {
+        status.hidden = false;
+        status.textContent = "Paste the HTML from the prompt.";
+        return;
+      }
+      status.hidden = true;
+      try {
+        const response = await fetch("/api/listing-results", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listing_id: id, html: text }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          status.hidden = false;
+          status.textContent = payload.error || "Could not save the results.";
+          return;
+        }
+        data = payload;
+        render();
+        if (text) openResults(id);
+        else closeResults();
+      } catch (saveError) {
+        status.hidden = false;
+        status.textContent = "Could not save the results.";
+      }
+    }
+
+    document.querySelector("#results-html").addEventListener("input", (event) => {
+      renderResultsPreview(event.target.value);
+    });
+    document.querySelector("#results-dialog").addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveResults(document.querySelector("#results-html").value);
+    });
+    document.querySelector("#results-cancel").addEventListener("click", closeResults);
+    document.querySelector("#results-replace").addEventListener("click", () => {
+      document.querySelector("#results-paste").hidden = false;
+      document.querySelector("#results-save").hidden = false;
+      document.querySelector("#results-html").focus();
+    });
+    document.querySelector("#results-clear").addEventListener("click", () => {
+      saveResults("");
+    });
+    document.querySelector("#results-backdrop").addEventListener("click", (event) => {
+      if (event.target.id === "results-backdrop") closeResults();
+    });
+
     async function copyPrompt(text) {
       try {
         await navigator.clipboard.writeText(text);
@@ -1924,13 +2212,40 @@ ${filled}`;
       }
     }
 
-    function setGenerateStatus(message, isError) {
+    function setGenerateStatus(message, isError, folderId) {
       const status = document.querySelector("#generate-status");
       if (!status) return;
       status.hidden = !message;
       status.textContent = message || "";
       status.classList.toggle("error", Boolean(isError) && Boolean(message));
       status.classList.toggle("ok", Boolean(message) && !isError);
+      if (folderId) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.action = "open-folder";
+        button.dataset.id = folderId;
+        button.textContent = "Open folder";
+        status.append(" ");
+        status.append(button);
+      }
+    }
+
+    async function openAttachmentFolder(id) {
+      if (!id) return;
+      rememberListing(id);
+      setGenerateStatus("Opening the attachment folder...", false);
+      try {
+        const response = await fetch("/api/open-attachment-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listing_id: id }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Could not open the attachment folder.");
+        setGenerateStatus("Opened the attachment folder.", false, id);
+      } catch (err) {
+        setGenerateStatus(err.message || "Could not open the attachment folder.", true);
+      }
     }
 
     async function saveListingNotes() {
@@ -2018,6 +2333,7 @@ ${filled}`;
         );
         document.querySelector("#prompt-copy").textContent = prompt;
         let folderNote = "";
+        let folderId = "";
         try {
           const openResponse = await fetch("/api/open-listing-folder", {
             method: "POST",
@@ -2025,9 +2341,12 @@ ${filled}`;
             body: JSON.stringify({ listing_id: id, prompt }),
           });
           const openPayload = await openResponse.json();
-          folderNote = openResponse.ok
-            ? "Opened the listing folder."
-            : (openPayload.error || "The listing folder could not be opened.");
+          if (openResponse.ok) {
+            folderNote = "Opened the listing folder.";
+            folderId = id;
+            if (!Array.isArray(data.attachment_folders)) data.attachment_folders = [];
+            if (!data.attachment_folders.includes(id)) data.attachment_folders.push(id);
+          } else folderNote = openPayload.error || "The listing folder could not be opened.";
         } catch (openError) {
           folderNote = "The listing folder could not be opened.";
         }
@@ -2043,7 +2362,7 @@ ${filled}`;
           .filter(Boolean)
           .join(" ");
         const failed = copied.includes("could not") || Boolean(listingNote && !listingText) || folderNote.includes("could not");
-        setGenerateStatus(extra ? `${copied} ${extra}` : copied, failed);
+        setGenerateStatus(extra ? `${copied} ${extra}` : copied, failed, folderId);
       } catch (err) {
         setGenerateStatus("Could not generate the prompt.", true);
       } finally {

@@ -1134,12 +1134,21 @@ def listing_snapshot(page_html: str) -> dict | None:
     Returns None when the page is not a readable listing. inventory_usd is None
     when the listing does not say it includes or excludes inventory.
     """
-    asking = ASKING_BLOCK_RE.search(page_html)
-    if asking is None:
-        return None
-    region = STRIKETHROUGH_RE.sub("", asking.group(1))
-    price_region = re.split(r"Includes|Excludes|<hr", region, maxsplit=1, flags=re.IGNORECASE)[0]
-    prices = PRICE_RE.findall(price_region)
+    prices: list[str] = []
+    header = re.search(
+        r"USD\s*\$([0-9][0-9,]*)\s*</div>\s*<div[^>]*>\s*Asking Price\b",
+        page_html,
+        re.IGNORECASE,
+    )
+    if header:
+        prices = [header.group(1)]
+    if not prices:
+        for match in ASKING_BLOCK_RE.finditer(page_html):
+            region = STRIKETHROUGH_RE.sub("", match.group(1))
+            price_region = re.split(r"Includes|Excludes|<hr", region, maxsplit=1, flags=re.IGNORECASE)[0]
+            prices = PRICE_RE.findall(price_region)
+            if prices:
+                break
     if not prices:
         return None
     inventory_usd, inventory_kind = parse_inventory(page_html)
@@ -1172,6 +1181,16 @@ def listing_snapshot(page_html: str) -> dict | None:
         place = html.unescape(location.group(1)).strip()
         if place:
             fresh["location"] = place
+    if not fresh.get("location"):
+        located = re.search(
+            r"Business Location\s*</span>\s*<div[^>]*>\s*<a\b[^>]*>\s*([^<]+)",
+            page_html,
+            re.IGNORECASE,
+        )
+        if located:
+            place = html.unescape(located.group(1)).strip()
+            if place:
+                fresh["location"] = place
     return fresh
 
 
@@ -1507,7 +1526,7 @@ def keep_listing(item: dict, settings: Settings) -> bool:
 
 
 def excluded_listing_ids(output_dir: Path) -> set[str]:
-    """Listing numbers in deleted, saved, first access, signed NDA, or waiting inquiry."""
+    """Listing numbers in deleted, imported, saved, first access, signed NDA, or waiting inquiry."""
     found: set[str] = set()
     deleted_path = output_dir / "deleted.json"
     if deleted_path.is_file():
@@ -1555,6 +1574,15 @@ def excluded_listing_ids(output_dir: Path) -> set[str]:
                 number = str(item.get("listing_id", "")).strip()
                 if number:
                     found.add(number)
+    imported_path = output_dir / "imported.json"
+    if imported_path.is_file():
+        raw = imported_path.read_text(encoding="utf-8").strip()
+        data = json.loads(raw) if raw else []
+        for item in data:
+            if isinstance(item, dict):
+                number = str(item.get("listing_id", "")).strip()
+                if number:
+                    found.add(number)
     return found
 
 
@@ -1572,7 +1600,7 @@ def scrape(settings: Settings, delay: float, timeout: float, excluded: set[str] 
     skipped = excluded or set()
     if skipped:
         print(
-            f"Skipping {len(skipped)} listing numbers already in Deleted, Top Choices, First access, Signed NDA, or Waiting inquiry.",
+            f"Skipping {len(skipped)} listing numbers already in Deleted, Import, Top Choices, First access, Signed NDA, or Waiting inquiry.",
             file=sys.stderr,
         )
 

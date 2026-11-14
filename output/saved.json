@@ -52,5 +52,19 @@
     "verifications": "Amazon Seller",
     "listing_id": "13412687",
     "url": "https://flippa.com/13412687"
+  },
+  {
+    "name": "Established Premium Cannabis Accessories Brand - 13069044",
+    "price_usd": 145000,
+    "inventory_usd": 15000,
+    "inventory_kind": "excludes",
+    "location": "MO, United States",
+    "type": "Ecommerce",
+    "monthly_profit_usd": 5083,
+    "profit_multiple": 2.4,
+    "age": "10 years",
+    "verifications": "Shopify",
+    "listing_id": "13069044",
+    "url": "https://flippa.com/13069044"
   }
 ]

@@ -29,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from scorecard import score_inputs_html, scorecard_instructions
 from scrape import (
     DEFAULT_DELAY,
     DEFAULT_TIMEOUT,
@@ -41,6 +42,7 @@ from scrape import (
     filter_options,
     listing_attachment_links,
     listing_display_name,
+    listing_headline,
     listing_prompt_text,
     listing_snapshot,
     listing_view_status,
@@ -60,8 +62,10 @@ DELETED_PATH = OUTPUT / "deleted.json"
 FIRST_ACCESS_PATH = OUTPUT / "first_access.json"
 NDA_PATH = OUTPUT / "nda.json"
 WAITING_PATH = OUTPUT / "waiting_inquiry.json"
+IMPORTED_PATH = OUTPUT / "imported.json"
 RATINGS_PATH = OUTPUT / "ratings.json"
 NOTES_PATH = OUTPUT / "listing_notes.json"
+RESULTS_PATH = OUTPUT / "listing_results.json"
 METRICS_FILES = ("mertices.txt", "metrices.txt", "metrices.txt.txt")
 FILTERS_PATH = OUTPUT / "filters.txt"
 SAVED_FILTERS = OUTPUT / "saved-filters"
@@ -200,6 +204,31 @@ def delete_attachment_folders() -> int:
     return removed
 
 
+def attachment_folder_ids() -> list[str]:
+    """Listing numbers that already have an attachments folder."""
+    root = ATTACHMENTS.resolve()
+    if not root.is_dir():
+        return []
+    found = []
+    for child in root.iterdir():
+        if not child.is_dir() or child.is_symlink() or not child.name.isdigit():
+            continue
+        resolved = child.resolve()
+        if resolved.parent == root:
+            found.append(child.name)
+    return sorted(found, key=int)
+
+
+def open_attachment_folder(number: str) -> None:
+    """Open attachments/{listing id} in File Explorer."""
+    if not listing_exists(number):
+        raise KeyError(number)
+    folder = listing_folder(number)
+    if not folder.is_dir():
+        raise ValueError("That listing has no attachment folder yet.")
+    os.startfile(folder)
+
+
 def store_prompt_and_open(number: str, prompt: str) -> None:
     """Write aiprompt.txt and open the listing's attachments folder."""
     if not listing_exists(number):
@@ -254,9 +283,16 @@ def flippa_listing_url(number: str, url: str = "") -> str:
 
 
 def known_listings() -> dict[str, dict]:
-    """Listings still stored on a review or holding tab, including Waiting inquiry."""
+    """Listings still stored on a review or holding tab, including Import and Waiting inquiry."""
     found: dict[str, dict] = {}
-    for rows in (load_businesses(), load_saved(), load_first_access(), load_nda(), load_waiting()):
+    for rows in (
+        load_businesses(),
+        load_imported(),
+        load_saved(),
+        load_first_access(),
+        load_nda(),
+        load_waiting(),
+    ):
         for row in rows:
             number = listing_number(row)
             if number and number not in found:
@@ -393,6 +429,11 @@ def load_waiting() -> list[dict]:
     return data if isinstance(data, list) else []
 
 
+def load_imported() -> list[dict]:
+    data = read_json(IMPORTED_PATH, [])
+    return data if isinstance(data, list) else []
+
+
 def _stored_rating(value) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
@@ -519,6 +560,74 @@ def save_listing_notes(number: str, payload: dict) -> None:
     write_json(NOTES_PATH, notes)
 
 
+def load_listing_results() -> dict[str, str]:
+    data = read_json(RESULTS_PATH, {})
+    if not isinstance(data, dict):
+        return {}
+    results: dict[str, str] = {}
+    for key, value in data.items():
+        number = str(key).strip()
+        if not number.isdigit() or not isinstance(value, str):
+            continue
+        html = value.strip()
+        if html:
+            results[number] = html[:100_000]
+    return results
+
+
+def listing_price_usd(number: str) -> int | None:
+    row = known_listings().get(number) or {}
+    value = row.get("price_usd")
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        return None
+    return int(value)
+
+
+def final_score_from_html(html: str) -> int | None:
+    """The scorecard Final score, which is the listing's AI score."""
+    match = re.search(
+        r"Final score</strong></td>\s*<td><strong>\d+</strong></td>\s*<td><strong>(\d+(?:\.\d+)?)</strong>",
+        html,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    number = float(match.group(1))
+    if number < 0 or number > 100:
+        return None
+    return int(number) if number == int(number) else None
+
+
+def save_listing_result(number: str, html: object) -> None:
+    if not listing_exists(number):
+        raise KeyError(number)
+    if html is None:
+        text = ""
+    elif not isinstance(html, str):
+        raise ValueError("results must be HTML text")
+    else:
+        text = html.strip()
+    if text:
+        price = listing_price_usd(number)
+        scored = score_inputs_html(text, price)
+        if scored is not None:
+            text = scored
+    if len(text) > 100_000:
+        raise ValueError("That results HTML is too long.")
+    results = load_listing_results()
+    previous = results.get(number, "")
+    if text:
+        results[number] = text
+    else:
+        results.pop(number, None)
+    write_json(RESULTS_PATH, results)
+    score = final_score_from_html(text) if text else None
+    if score is not None:
+        set_ai_score(number, score)
+    elif not text and final_score_from_html(previous) is not None:
+        set_ai_score(number, None)
+
+
 def metrics_text() -> str:
     """Load the metrics prompt. The newest file wins so a fresh edit is not shadowed."""
     found = [ROOT / name for name in METRICS_FILES if (ROOT / name).is_file()]
@@ -585,6 +694,116 @@ def drop_waiting(number: str) -> None:
     kept = [row for row in rows if listing_number(row) != number]
     if len(kept) != len(rows):
         write_json(WAITING_PATH, kept)
+
+
+def drop_imported(number: str) -> None:
+    if not IMPORTED_PATH.is_file():
+        return
+    rows = load_imported()
+    kept = [row for row in rows if listing_number(row) != number]
+    if len(kept) != len(rows):
+        write_json(IMPORTED_PATH, kept)
+
+
+def drop_deleted(number: str) -> None:
+    rows = load_deleted()
+    kept = [row for row in rows if listing_number(row) != number]
+    if len(kept) != len(rows):
+        write_deleted(kept)
+
+
+_LISTING_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?flippa\.com/(\d{4,})",
+    re.IGNORECASE,
+)
+
+
+def listing_id_from_url(raw: object) -> str:
+    """Flippa listing number from a pasted listing URL or a bare id."""
+    if not isinstance(raw, str):
+        raise ValueError("Paste a Flippa listing URL, like https://flippa.com/14375055.")
+    text = raw.strip()
+    if text.isdigit() and len(text) >= 4:
+        return text
+    match = _LISTING_URL_RE.search(text)
+    if match is None:
+        raise ValueError("Paste a Flippa listing URL, like https://flippa.com/14375055.")
+    return match.group(1)
+
+
+def _keep_other_rows(load, save, number: str) -> None:
+    rows = load()
+    kept = [row for row in rows if listing_number(row) != number]
+    if len(kept) != len(rows):
+        save(kept)
+
+
+def _blank(value) -> bool:
+    return value is None or value == ""
+
+
+def import_listing(raw: object) -> None:
+    """Read one Flippa listing page and store it on the Import tab."""
+    number = listing_id_from_url(raw)
+    url = f"https://flippa.com/{number}"
+    try:
+        page = fetch(url, DEFAULT_TIMEOUT, flippa_cookie())
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise ValueError("That Flippa listing could not be found.") from error
+        raise ValueError("Could not open that Flippa listing.") from error
+    except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as error:
+        raise ValueError("Could not open that Flippa listing.") from error
+    if not page:
+        raise ValueError("Could not open that Flippa listing.")
+    fresh = listing_snapshot(page) or {}
+    headline = str(fresh.get("name") or listing_headline(page) or "").strip()
+    if not fresh and not headline:
+        raise ValueError("Could not read that Flippa listing.")
+    previous = known_listings().get(number)
+    if previous is None:
+        previous = next((row for row in load_deleted() if listing_number(row) == number), None)
+    row = {
+        "name": listing_display_name(headline, number) or f"Listing {number}",
+        "price_usd": fresh.get("price_usd", ""),
+        "inventory_usd": "" if fresh.get("inventory_usd") is None else fresh.get("inventory_usd"),
+        "inventory_kind": fresh.get("inventory_kind") or "",
+        "location": fresh.get("location") or "",
+        "type": "",
+        "monthly_profit_usd": fresh.get("monthly_profit_usd", ""),
+        "profit_multiple": fresh.get("profit_multiple", ""),
+        "age": fresh.get("age") or "",
+        "verifications": "",
+        "listing_id": number,
+        "url": url,
+    }
+    if previous:
+        for key in (
+            "name",
+            "price_usd",
+            "inventory_usd",
+            "inventory_kind",
+            "location",
+            "type",
+            "monthly_profit_usd",
+            "profit_multiple",
+            "age",
+            "verifications",
+        ):
+            if _blank(row.get(key)) and not _blank(previous.get(key)):
+                row[key] = previous.get(key)
+    if _blank(row.get("inventory_usd")):
+        row["inventory_kind"] = ""
+    stored = public_row(row)
+    _keep_other_rows(load_businesses, write_businesses, number)
+    _keep_other_rows(load_saved, lambda rows: write_json(SAVED_PATH, rows), number)
+    _keep_other_rows(load_first_access, lambda rows: write_json(FIRST_ACCESS_PATH, rows), number)
+    _keep_other_rows(load_nda, lambda rows: write_json(NDA_PATH, rows), number)
+    drop_waiting(number)
+    drop_deleted(number)
+    imported = [item for item in load_imported() if listing_number(item) != number]
+    imported.append(stored)
+    write_json(IMPORTED_PATH, imported)
 
 
 def find_listing(number: str, pools: tuple[list[dict], ...]) -> dict | None:
@@ -771,7 +990,16 @@ def filters_payload() -> dict:
     return {"error": None, "options": options, "form": filter_form(settings)}
 
 
+def apply_result_scores() -> None:
+    """Keep each AI score equal to that listing's scorecard Final score."""
+    for number, html in load_listing_results().items():
+        score = final_score_from_html(html)
+        if score is not None:
+            set_ai_score(number, score)
+
+
 def state() -> dict:
+    apply_result_scores()
     return {
         "businesses": load_businesses(),
         "saved": load_saved(),
@@ -779,12 +1007,16 @@ def state() -> dict:
         "first_access": load_first_access(),
         "nda": load_nda(),
         "waiting_inquiry": load_waiting(),
+        "imported": load_imported(),
         "ratings": load_ratings(),
         "ai_scores": load_ai_scores(),
         "listing_notes": load_listing_notes(),
+        "listing_results": load_listing_results(),
         "metrics": metrics_text(),
+        "scorecard_instructions": scorecard_instructions(),
         "filters": filters_payload(),
         "saved_filters": list_saved_filters(),
+        "attachment_folders": attachment_folder_ids(),
     }
 
 
@@ -812,11 +1044,12 @@ def delete_listing(number: str, note: str = "") -> None:
     write_json(FIRST_ACCESS_PATH, first_access)
     write_json(NDA_PATH, nda)
     drop_waiting(number)
+    drop_imported(number)
     write_deleted(deleted)
 
 
 def save_listing(number: str) -> None:
-    chosen = find_listing(number, (load_businesses(), load_waiting(), load_nda()))
+    chosen = find_listing(number, (load_businesses(), load_waiting(), load_nda(), load_imported()))
     if chosen is None:
         raise KeyError(number)
     saved = load_saved()
@@ -824,6 +1057,7 @@ def save_listing(number: str) -> None:
         saved.append(public_row(chosen))
     write_businesses([row for row in load_businesses() if listing_number(row) != number])
     drop_waiting(number)
+    drop_imported(number)
     write_json(NDA_PATH, [row for row in load_nda() if listing_number(row) != number])
     write_json(SAVED_PATH, saved)
 
@@ -831,7 +1065,7 @@ def save_listing(number: str) -> None:
 def first_access_listing(number: str, days: int) -> None:
     if days < 1:
         raise ValueError("days must be 1 or more")
-    chosen = find_listing(number, (load_businesses(), load_waiting()))
+    chosen = find_listing(number, (load_businesses(), load_waiting(), load_imported()))
     if chosen is None:
         raise KeyError(number)
     record = public_row(chosen)
@@ -841,13 +1075,14 @@ def first_access_listing(number: str, days: int) -> None:
     queued.append(record)
     write_businesses([row for row in load_businesses() if listing_number(row) != number])
     drop_waiting(number)
+    drop_imported(number)
     write_json(FIRST_ACCESS_PATH, queued)
 
 
 def sign_nda(number: str) -> None:
     chosen = find_listing(
         number,
-        (load_businesses(), load_saved(), load_first_access(), load_nda(), load_waiting()),
+        (load_businesses(), load_imported(), load_saved(), load_first_access(), load_nda(), load_waiting()),
     )
     if chosen is None:
         raise KeyError(number)
@@ -857,13 +1092,14 @@ def sign_nda(number: str) -> None:
     write_json(SAVED_PATH, [row for row in load_saved() if listing_number(row) != number])
     write_json(FIRST_ACCESS_PATH, [row for row in load_first_access() if listing_number(row) != number])
     drop_waiting(number)
+    drop_imported(number)
     write_json(NDA_PATH, nda)
 
 
 def waiting_inquiry(number: str) -> None:
     chosen = find_listing(
         number,
-        (load_businesses(), load_saved(), load_first_access(), load_nda(), load_waiting()),
+        (load_businesses(), load_imported(), load_saved(), load_first_access(), load_nda(), load_waiting()),
     )
     if chosen is None:
         raise KeyError(number)
@@ -873,7 +1109,19 @@ def waiting_inquiry(number: str) -> None:
     write_json(SAVED_PATH, [row for row in load_saved() if listing_number(row) != number])
     write_json(FIRST_ACCESS_PATH, [row for row in load_first_access() if listing_number(row) != number])
     write_json(NDA_PATH, [row for row in load_nda() if listing_number(row) != number])
+    drop_imported(number)
     write_json(WAITING_PATH, waiting)
+
+
+def review_listing(number: str) -> None:
+    chosen = find_listing(number, (load_imported(),))
+    if chosen is None:
+        raise KeyError(number)
+    businesses = load_businesses()
+    if not any(listing_number(row) == number for row in businesses):
+        businesses.append(public_row(chosen))
+    drop_imported(number)
+    write_businesses(businesses)
 
 
 def restore_listing(number: str) -> None:
@@ -896,6 +1144,7 @@ LIST_VIEWS = {
     "first_access": (load_first_access, lambda rows: write_json(FIRST_ACCESS_PATH, rows)),
     "nda": (load_nda, lambda rows: write_json(NDA_PATH, rows)),
     "waiting_inquiry": (load_waiting, lambda rows: write_json(WAITING_PATH, rows)),
+    "imported": (load_imported, lambda rows: write_json(IMPORTED_PATH, rows)),
     "deleted": (load_deleted, write_deleted),
 }
 
@@ -1029,14 +1278,23 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/listing-notes":
             self._listing_notes()
             return
+        if path == "/api/listing-results":
+            self._listing_results()
+            return
         if path == "/api/listing-text":
             self._listing_text()
             return
         if path == "/api/open-listing-folder":
             self._open_listing_folder()
             return
+        if path == "/api/open-attachment-folder":
+            self._open_attachment_folder()
+            return
         if path == "/api/delete-attachments":
             self._delete_attachments()
+            return
+        if path == "/api/import-listing":
+            self._import_listing()
             return
         if path == "/api/refresh":
             self._refresh()
@@ -1052,6 +1310,7 @@ class Handler(BaseHTTPRequestHandler):
             "/api/first-access": first_access_listing,
             "/api/nda": sign_nda,
             "/api/waiting-inquiry": waiting_inquiry,
+            "/api/review": review_listing,
         }
         action = actions.get(path)
         if action is None:
@@ -1100,6 +1359,18 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
             self.close_connection = True
+
+    def _import_listing(self) -> None:
+        try:
+            payload = self._read_json()
+            import_listing(payload.get("url", ""))
+        except KeyError:
+            self._send_json({"error": "listing not found"}, status=404)
+            return
+        except (ValueError, json.JSONDecodeError) as error:
+            self._send_json({"error": str(error)}, status=400)
+            return
+        self._send_json(state())
 
     def _refresh(self) -> None:
         if not _run_lock.acquire(blocking=False):
@@ -1194,6 +1465,21 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json(state())
 
+    def _listing_results(self) -> None:
+        try:
+            payload = self._read_json()
+            number = str(payload.get("listing_id", "")).strip()
+            if not number.isdigit():
+                raise ValueError("listing_id must be the Flippa listing number")
+            save_listing_result(number, payload.get("html"))
+        except KeyError:
+            self._send_json({"error": "listing not found"}, status=404)
+            return
+        except (ValueError, json.JSONDecodeError) as error:
+            self._send_json({"error": str(error)}, status=400)
+            return
+        self._send_json(state())
+
     def _listing_text(self) -> None:
         if not _run_lock.acquire(blocking=False):
             self._send_json({"error": "A Flippa request is already running."}, status=409)
@@ -1228,6 +1514,22 @@ class Handler(BaseHTTPRequestHandler):
             payload = self._read_json()
             number = str(payload.get("listing_id", "")).strip()
             store_prompt_and_open(number, str(payload.get("prompt") or ""))
+        except KeyError:
+            self._send_json({"error": "listing not found"}, status=404)
+            return
+        except (ValueError, json.JSONDecodeError) as error:
+            self._send_json({"error": str(error)}, status=400)
+            return
+        except OSError as error:
+            self._send_json({"error": f"Could not open the listing folder: {error}"}, status=500)
+            return
+        self._send_json({"ok": True})
+
+    def _open_attachment_folder(self) -> None:
+        try:
+            payload = self._read_json()
+            number = str(payload.get("listing_id", "")).strip()
+            open_attachment_folder(number)
         except KeyError:
             self._send_json({"error": "listing not found"}, status=404)
             return
